@@ -1,4 +1,6 @@
 # Byte-compiled / optimized / DLL files
+logs/*
+real_time_diffusion/logs/*
 data_exp/*
 ar_imgs/*
 sdxl_models/*

@@ -47,7 +47,7 @@ import cv2
 
 #%% VARS
 shape_cam = (300,400)
-do_compile = True
+do_compile = False
 
 sz_renderwin = (int(512*2.09), int(512*3.85))
 resolution_factor = 8
@@ -238,6 +238,10 @@ def multi_match_gpu(list_images, weights=None, simple=False, clip_max='auto', gp
         else:
             list_images_new.append(img_new.cpu().numpy())
     return list_images_new
+
+
+
+
 #%% Inits
 cam = lt.WebCam(cam_id=-1, shape_hw=shape_cam)
 cam.autofocus_enable()
@@ -274,6 +278,26 @@ speech_detector = lt.Speech2Text()
 renderer = lt.Renderer(width=sz_renderwin[1], height=sz_renderwin[0])
 blur = MedianBlur((7, 7))
 
+def get_noise_for_modulations(shape):
+    return torch.randn(shape, device=pipe.device, generator=torch.Generator(device=pipe.device).manual_seed(1)).half()
+
+modulations = {}
+modulations_noise = {}
+# for i in range(3):
+#     modulations_noise[f'e{i}'] = get_noise_for_modulations(get_sample_shape_unet(f'e{i}'))
+#     modulations_noise[f'd{i}'] = get_noise_for_modulations(get_sample_shape_unet(f'd{i}'))
+    
+# modulations_noise['b0'] = get_noise_for_modulations(get_sample_shape_unet('b0'))
+    
+prompt_decoder = 'fire'
+prompt_embeds_decoder, negative_prompt_embeds_decoder, pooled_prompt_embeds_decoder, negative_pooled_prompt_embeds_decoder = blender.get_prompt_embeds(prompt_decoder, negative_prompt)
+
+last_render_timestamp = time.time()
+fract = 0
+use_modulated_unet = True
+
+
+    
 #%%
 prompt = 'Bizarre creature from Hieronymus Bosch painting "A Garden of Earthly Delights" on a schizophrenic ayahuasca trip'
 
@@ -281,11 +305,25 @@ fract = 0
 blender.set_prompt1(prompt)
 blender.set_prompt2(prompt)
 prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = blender.blend_stored_embeddings(fract)
+# prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = blender
 blender.blend_stored_embeddings(fract)
+# prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = blender.get_prompt_embeds(prompt, negative_prompt)
 
 # Renderer
+renderer = lt.Renderer(width=sz_renderwin[1], height=sz_renderwin[0])
+
 cam_img = cam.get_img()
 cam_img = np.flip(cam_img, axis=1)
+
+    
+last_frame_tracer = None
+    
+do_add_noise = True
+
+# fp_movie_out = f'./movies_out/{person_name}.mp4'
+# ms = lt.MovieSaver(fp_movie_out, fps=11)
+
+
 
 noise_resolution_w = base_w*resolution_factor
 noise_resolution_h = base_h*resolution_factor
@@ -295,35 +333,61 @@ cam_resolution_h = base_h*8*resolution_factor
 
 # test resolution
 cam_img = cv2.resize(cam_img.astype(np.uint8), (cam_resolution_w, cam_resolution_h))
+
+# fp_aug = 'augs/baloon.png'
+# aug_overlay = cv2.imread(fp_aug)[:,:,::-1].copy()
+# aug_overlay = cv2.resize(aug_overlay.astype(np.uint8), (cam_resolution_w, cam_resolution_h))
+
 last_cam_img_torch = None
 
+meta_input = lt.MetaInput()
+# emodisk = EmoController()
+
+memory_matrix = np.linspace(0.1,0.4,cam_img.shape[1])
+memory_matrix = np.expand_dims(np.expand_dims(memory_matrix, 0), -1)
+speech_detector = lt.Speech2Text()
 
 # noise
-latents = torch.randn((1,4,noise_resolution_h,noise_resolution_w)).half().cuda()
 noise_img2img_orig = torch.randn((1,4,noise_resolution_h,noise_resolution_w)).half().cuda()
 
-torch_last_diffusion_image = torch.from_numpy(cam_img).to(latents.device, dtype=torch.float)
+torch_last_diffusion_image = torch.from_numpy(cam_img).to('cuda', dtype=torch.float)
 image_displacement_accumulated = 0
 image_displacement_array_accumulated = None
 
+def get_sample_shape_unet(coord):
+    if coord[0] == 'e':
+        coef = float(2**int(coord[1]))
+        shape = [int(np.ceil(noise_resolution_h/coef)), int(np.ceil(noise_resolution_w/coef))]
+    elif coord[0] == 'b':
+        shape = [int(np.ceil(noise_resolution_h/4)), int(np.ceil(noise_resolution_w/4))]
+    else:
+        coef = float(2**(2-int(coord[1])))
+        shape = [int(np.ceil(noise_resolution_h/coef)), int(np.ceil(noise_resolution_w/coef))]
+        
+    return shape
 
-#%% LOOP
 
-guidance_scale = 0.5
-num_inference_steps = 2
-strength = 0.5
-t_last_frame_rendered = time.time()
-fract = 0
+use_pose = False
+latents = torch.randn((1,4,noise_resolution_h, noise_resolution_w)).half().cuda()
+
 movie_recording_started = 0
 
+if use_pose:
+    client = lt.ZMQPairEndpoint(is_server=False, ip='127.0.0.1', port='5556')
+
 while True:
-    torch.manual_seed(0)
-    noise_img2img_fresh = torch.randn((1,4,noise_resolution_h,noise_resolution_w)).half().cuda()
+    do_fix_seed = not meta_input.get(akai_midimix='F3', button_mode='toggle')
+    if do_fix_seed:
+        torch.manual_seed(0)
+        
+    noise_img2img_fresh = torch.randn((1,4,noise_resolution_h, noise_resolution_w)).half().cuda()
     
     noise_mixing = meta_input.get(akai_midimix="D0", val_min=0, val_max=1.0, val_default=0)
     noise_img2img = blender.interpolate_spherical(noise_img2img_orig, noise_img2img_fresh, noise_mixing)
-
-    do_record_mic = False
+    do_cam_coloring = meta_input.get(akai_midimix="G3", button_mode="toggle")
+    do_gray_noise = meta_input.get(akai_midimix="G4", button_mode="toggle")
+    
+    do_record_mic = meta_input.get(keyboard='r', button_mode='pressed_once')
     
     if do_record_mic:
         if not speech_detector.audio_recorder.is_recording:
@@ -346,7 +410,9 @@ while True:
     if get_new_prompt:
         try:
             prompt_prev = prompt
+
             print(f"New prompt: {prompt}")
+            stop_recording = False
             fract = 0
             blender.set_prompt1(prompt_prev, negative_prompt)
             blender.set_prompt2(prompt, negative_prompt)
@@ -357,11 +423,46 @@ while True:
     prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = blender.blend_stored_embeddings(fract)
 
 
-    cam_img = cam.get_img()
+    
+    # # save_midi_settings = meta_input.get(akai_midimix='D4', button_mode='pressed_once')
+    # # if save_midi_settings:
+        
+    #     path_midi_dump = "../submersion/midi_dumps"
+    #     fn = None
+    #     os.makedirs(path_midi_dump, exist_ok=True)
+    #     parameters = []
+    #     from datetime import datetime
+    #     import yaml
+    #     if fn == None:
+    #         current_datetime_string = datetime.now().strftime("%Y-%m-%d_%H%M%S")
+    #         fn = f'midi_dump_{current_datetime_string}.yml'
+    #     fp = os.path.join(path_midi_dump, fn)
+    #     for id_, name in meta_input.id_name.items():
+    #         value = meta_input.id_value[id_]
+    #         parameters.append({'id':id_, 'name':name, 'value':value})
+        
+    #     parameters.append({'prompt':prompt})
+    #     with open(fp, 'w') as file:
+    #         yaml.dump(parameters, file)
+        # akai_midimix.yaml_dump(path=path_midi_dump, prompt=prompt)
+        
+    use_image2image = meta_input.get(akai_midimix="I2", button_mode="toggle")
+    if use_image2image:
+        speed_movie = 1
+        cam_img = movie_reader.get_next_frame(speed=int(speed_movie))
+        cam_img = cv2.resize(cam_img, (640, 360))
+        cam_img = cam_img[:,:,::-1]
+        # print(f'using the video {fp_movie}')
+    else:
+        cam_img = cam.get_img()
+        
+
+        
     cam_img = np.flip(cam_img, axis=1)
     
+    
     # mask the body
-    apply_body_mask = meta_input.get(akai_midimix="E3", button_mode="toggle", val_default=True)
+    apply_body_mask = meta_input.get(akai_midimix="E3", button_mode="toggle")
     if apply_body_mask:
         mask_strength = meta_input.get(akai_midimix="E2", val_min=0.0, val_max=1.0, val_default=1)
         mask = np.expand_dims(human_seg.get_mask(cam_img), axis=2)
@@ -369,53 +470,247 @@ while True:
         cam_img = (1-mask_strength)*cam_img + mask_strength * cam_img_masked
         cam_img = cam_img.astype(np.uint8)
     
+    # test resolution
     cam_img = cv2.resize(cam_img.astype(np.uint8), (cam_resolution_w, cam_resolution_h))
     
+    # do_aug_overlay = meta_input.get(akai_midimix='C3', button_mode='toggle')
+    # if do_aug_overlay:
+    #     aug_overlay = np.roll(aug_overlay,-10, axis=0)
+    #     mask_aug = aug_overlay[:,:,0] != 0
+    #     cam_img[mask_aug] = aug_overlay[mask_aug]
+    
+    strength = meta_input.get(akai_midimix="D2", val_min=0.5, val_max=1.0, val_default=0.5)
+    # strength = 0.5
+    # num_inference_steps = int(meta_input.get(akai_midimix="C1", val_min=2, val_max=10, val_default=2))
+    guidance_scale = 0.5
+    guidance_scale = meta_input.get(akai_midimix="C1", val_min=0.001, val_max=1., val_default=0.5)
+    # num_inference_steps = meta_input.get(akai_midimix="D1", val_min=2, val_max=6.1, val_default=2)
+    # num_inference_steps = int(num_inference_steps)
+    num_inference_steps = 2
     
     cam_img_torch = torch.from_numpy(cam_img.copy()).to(latents.device).float()
-    cam_img_torch = blur(cam_img_torch.permute([2,0,1])[None])[0].permute([1,2,0])
     
-    # coef noise
-    coef_noise = meta_input.get(akai_midimix="E0", akai_lpd8="E1", val_min=0, val_max=0.5, val_default=0.15)
+    disable_blur = meta_input.get(akai_midimix="F4", button_mode="toggle")
+    if not disable_blur:
+        cam_img_torch = blur(cam_img_torch.permute([2,0,1])[None])[0].permute([1,2,0])
     
-    t_rand = (torch.randn(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
+    if use_pose:
+        client_msgs = client.get_messages()
+        if client_msgs:
+            dict_coco_keypoints = {0:'nose', 1:'left_eye', 2:'right_eye', 3:'left_ear', 4:'right_ear', 5:'left_shoulder', 6:'right_shoulder', 7:'left_elbow', 8:'right_elbow', 9:'left_wrist', 10:'right_wrist', 11:'left_hip', 12:'right_hip', 13:'left_knee', 14:'right_knee', 15:'left_ankle', 16:'right_ankle'}
+            dict_keypoint_names = {v: k for k, v in dict_coco_keypoints.items()}
+            array_keypoints = client_msgs[0]['keypoints'][0]
+            dist_shoulders = array_keypoints[dict_keypoint_names['left_shoulder']][0] - array_keypoints[dict_keypoint_names['right_shoulder']][0]
+            dist_wrists = array_keypoints[dict_keypoint_names['left_wrist']][0] - array_keypoints[dict_keypoint_names['right_wrist']][0]
+            print("Messages received by client:", client_msgs)
+    
+    
+    # torch_last_diffusion_image = torch.from_numpy(last_diffusion_image).to(cam_img_torch)
+    do_zoom = meta_input.get(akai_midimix="H4", akai_lpd8="C0", button_mode="toggle")
+    if do_zoom:
+        if use_pose:
+            try:
+                zoom_factor = 1 + ((dist_wrists - dist_shoulders)/dist_shoulders)/10
+            except:
+                zoom_factor = 1
+            print(f'zoom_factor: {zoom_factor}')
+        else:
+            zoom_factor = meta_input.get(akai_midimix="F0", akai_lpd8="G0", val_min=0.9, val_max=1.1, val_default=1)
+        torch_last_diffusion_image = zoom_image_torch(torch_last_diffusion_image, zoom_factor)
+    if do_cam_coloring:
+        for c in range(3):
+            coloring_mask = (torch.rand(cam_img_torch.shape[0], cam_img_torch.shape[1], 1) < 0.8).repeat(1, 1, 3)
+            coloring_mask[:,:,c] = 0
+            cam_img_torch[coloring_mask] = 255
 
-    cam_img_torch += t_rand
-    torch_last_diffusion_image += t_rand
+
+    if do_add_noise:
+        # coef noise
+        coef_noise = meta_input.get(akai_midimix="E0", akai_lpd8="E1", val_min=0, val_max=0.5, val_default=0.15)
+        # latent_noise_sigma = meta_input.get(akai_midimix="E1", akai_lpd8="E2", val_min=0.7, val_max=1.3, val_default=1)
+        
+        if not do_gray_noise:
+            
+            do_gaussian_noise = meta_input.get(akai_midimix="E4", button_mode="toggle")
+            if do_gaussian_noise:
+                t_rand = (torch.randn(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
+            else:
+                t_rand = (torch.rand(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
+                
+            # t_rand[t_rand < 0.5] = 0
+
+
+        else:
+            t_rand = (torch.rand(cam_img_torch.shape, device=cam_img_torch.device)[:,:,0].unsqueeze(2) - 0.5) * coef_noise * 255
+        cam_img_torch += t_rand
+        torch_last_diffusion_image += t_rand
+        # cam_img_torch += (torch.rand(cam_img_torch.shape, device=cam_img_torch.device)[:,:,0].unsqueeze(2) - 0.5) * coef_noise * 255 * 5
     
-    acid_strength = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
+
+    do_accumulate_acid = meta_input.get(akai_midimix="C4", akai_lpd8="B0", button_mode="toggle")
+    do_local_accumulate_acid = meta_input.get(akai_midimix="D4", button_mode="toggle")
+    invert_accumulate_acid = meta_input.get(akai_midimix="D3", akai_lpd8="B1", button_mode="toggle")
+    # acid_persistence = meta_input.get(akai_midimix="D1", val_min=0.01, val_max=0.99, val_default=0.5)
+    # acid_decay = meta_input.get(akai_midimix="D2", val_min=0.01, val_max=0.5, val_default=0.2)
+    
+    if do_accumulate_acid:
+        ## displacement controlled acid
+        if last_cam_img_torch is None:
+            last_cam_img_torch = cam_img_torch
+        acid_gain = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.5, val_default=0.05)
+            
+        image_displacement_array = ((cam_img_torch - last_cam_img_torch)/255)**2
+        
+        if do_local_accumulate_acid:
+            image_displacement_array = (1-image_displacement_array*100)
+            image_displacement_array = image_displacement_array.clamp(0)
+            if image_displacement_array_accumulated == None:
+                image_displacement_array_accumulated = torch.zeros_like(image_displacement_array)           
+            image_displacement_array_accumulated[image_displacement_array>=0.5] += 2e-2
+            image_displacement_array_accumulated[image_displacement_array<0.5] -= 2e-1
+            image_displacement_array_accumulated = image_displacement_array_accumulated.clamp(0)
+            
+            image_displacement_array_accumulated = image_displacement_array_accumulated.mean(2, keepdims=True)
+            image_displacement_array_accumulated = image_displacement_array_accumulated.repeat([1,1,3])
+            
+            image_displacement_array_accumulated -= image_displacement_array_accumulated.min()
+            image_displacement_array_accumulated /= image_displacement_array_accumulated.max()
+            
+            if invert_accumulate_acid:
+                acid_array = 1-image_displacement_array_accumulated
+                acid_array[acid_array<0.05]=0.05
+                acid_array *= acid_gain                
+            else:
+                acid_array = (image_displacement_array_accumulated)*acid_gain
+
+        
+        else:
+            image_displacement = image_displacement_array.mean()
+            image_displacement = (1-image_displacement*100)
+            if image_displacement < 0:
+                image_displacement = 0
+                
+            if image_displacement >= 0.5:
+                image_displacement_accumulated += 2e-2
+            else:
+                image_displacement_accumulated -= 4e-1
+
+            if image_displacement_accumulated < 0:
+                image_displacement_accumulated = 0
+            
+            if invert_accumulate_acid:
+                acid_strength = max(0.1, 1 - image_displacement_accumulated)
+            else:
+                acid_strength = 0.1 + image_displacement_accumulated * 1
+            acid_strength *= acid_gain
+            acid_strength = min(1, acid_strength)
+        last_cam_img_torch = cam_img_torch.clone()
+    else:
+        acid_strength = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
+        
     acid_freq = meta_input.get(akai_midimix="F2", val_min=0, val_max=10.0, val_default=0)
-
-    cam_img_torch = (1.-acid_strength)*cam_img_torch + acid_strength*torch_last_diffusion_image
+    # if acid_freq > 0:
+    #     acid_strength = (np.sin(acid_freq*float(time.time())) + 1)/2
+        
+    
+    # just a test
+    # cam_img_torch = (1.-acid_strength)*cam_img_torch + acid_strength*torch.from_numpy(last_diffusion_image).to(cam_img_torch)
+    if do_accumulate_acid and do_local_accumulate_acid:
+        cam_img_torch = (1.-acid_array)*cam_img_torch + acid_array*torch_last_diffusion_image
+    else:
+        cam_img_torch = (1.-acid_strength)*cam_img_torch + acid_strength*torch_last_diffusion_image
+    # if meta_input.get(akai_midimix='E4', button_mode='pressed_once'):
+    #     xxx
     cam_img_torch = torch.clamp(cam_img_torch, 0, 255)
+    # paint_decay = 0.999
+    # color_strenght = 1
+    # if apply_body_mask:
+    #     mask_torch = F.interpolate(torch.from_numpy(mask).to(latents.device).float().permute(2,0,1).unsqueeze(0), size=(1024, 1024), mode='bilinear', align_corners=False).squeeze(axis=0).permute(1,2,0)
+    #     if canvas.shape != cam_img_torch.shape:
+    #         canvas = torch.zeros_like(cam_img_torch)
+        
 
+    color_matching = meta_input.get(akai_lpd8="G1", akai_midimix="C2", val_min=0, val_max=1, val_default=0.0)
+    if color_matching > 0.01:
+        if apply_body_mask:
+            mask_torch = F.interpolate(torch.from_numpy(mask).to(latents.device).float().permute(2,0,1).unsqueeze(0), size=(1024, 1024), mode='bilinear', align_corners=False).squeeze(axis=0).permute(1,2,0)
+            torch_last_diffusion_image_masked = torch_last_diffusion_image*mask_torch
+            torch_last_diffusion_image = (1-mask_strength)*torch_last_diffusion_image + mask_strength * torch_last_diffusion_image_masked
+            cam_img_torch, _ = multi_match_gpu([cam_img_torch, torch_last_diffusion_image], weights=[1-color_matching, color_matching], clip_max='auto', gpu=0,  is_input_tensor=True)
+        else:
+            cam_img_torch, _ = multi_match_gpu([cam_img_torch, torch_last_diffusion_image], weights=[1-color_matching, color_matching], clip_max='auto', gpu=0,  is_input_tensor=True)
 
     cam_img = cam_img_torch.cpu().numpy()
-
+    
+    # # mask the body
+    # apply_body_mask = meta_input.get(akai_midimix="E3", button_mode="toggle")
+    # if apply_body_mask:
+    #     mask = human_seg.get_mask(cam_img)
+    #     cam_img *= np.expand_dims(mask, axis=2)    
+    
+    if use_modulated_unet:
+        mod_samp = meta_input.get(akai_midimix="H2", val_min=0, val_max=10, val_default=0)
+        modulations['b0_samp'] = torch.tensor(mod_samp, device=latents.device)
+        modulations['e2_samp'] = torch.tensor(mod_samp, device=latents.device)
+        
+        mod_emb = meta_input.get(akai_midimix="H1", akai_lpd8="F1", val_min=1, val_max=10, val_default=2)
+        modulations['b0_emb'] = torch.tensor(mod_emb, device=latents.device)
+        modulations['e2_emb'] = torch.tensor(mod_emb, device=latents.device)
+        
+        fract_mod = meta_input.get(akai_midimix="G0", val_default=0, val_max=2, val_min=0)
+        if fract_mod > 1:
+            modulations['d*_extra_embeds'] = prompt_embeds_decoder    
+        else:
+            modulations['d*_extra_embeds'] = prompt_embeds
+            
+        modulations['modulations_noise'] = modulations_noise
+        
+    if use_modulated_unet:
+        cross_attention_kwargs ={}
+        cross_attention_kwargs['modulations'] = modulations
+        # cross_attention_kwargs['latent_noise_sigma'] = latent_noise_sigma
+    else:
+        cross_attention_kwargs = None
+    
     use_debug_overlay = meta_input.get(akai_midimix="H3", akai_lpd8="D1", button_mode="toggle")
     if use_debug_overlay:
         image = cam_img.astype(np.uint8)
+        if do_local_accumulate_acid:
+            try:
+                image = (image_displacement_array_accumulated*255).cpu().numpy().astype(np.uint8)
+            except Exception as e:
+                print(f"bad error! {e}")
     else:
         image = pipe(image=Image.fromarray(cam_img.astype(np.uint8)), 
-                      latents=latents, num_inference_steps=num_inference_steps, strength=0.5, 
+                      latents=latents, num_inference_steps=num_inference_steps, strength=strength, 
                       guidance_scale=guidance_scale, prompt_embeds=prompt_embeds, 
                       negative_prompt_embeds=negative_prompt_embeds, 
                       pooled_prompt_embeds=pooled_prompt_embeds, 
                       negative_pooled_prompt_embeds=negative_pooled_prompt_embeds, noise_img2img=noise_img2img).images[0]
         
-    dt_frame = time.time() - t_last_frame_rendered
-    t_last_frame_rendered = time.time()
+    time_difference = time.time() - last_render_timestamp
+    last_render_timestamp = time.time()
     
-    fps = np.round(1/dt_frame)
+    fps = np.round(1/time_difference)
     lt.dynamic_print(f'fps: {fps}')
     try:
         torch_last_diffusion_image = torchvision.transforms.functional.pil_to_tensor(image).to(latents.device, dtype=torch.float).permute(1,2,0)
     except:
         torch_last_diffusion_image = torch.from_numpy(image).to(latents.device, dtype=torch.float)
+    # last_diffusion_image = np.array(image, dtype=np.float32)
+    
+    do_antishift = meta_input.get(akai_midimix="A4", akai_lpd8="D0", button_mode="toggle")
+    x_shift = int(meta_input.get(akai_midimix="B0", akai_lpd8="H0", val_default=0, val_max=10, val_min=-10))
+    y_shift = int(meta_input.get(akai_midimix="B1", akai_lpd8="H1", val_default=0, val_max=10, val_min=-10))
+    if do_antishift:
+        torch_last_diffusion_image = torch.roll(torch_last_diffusion_image, (y_shift, x_shift), (0,1))
+        
 
+    
     # Render the image
     renderer.render(image)
     
+
     do_record_movie = meta_input.get(akai_midimix="I1", button_mode="toggle")
     if do_record_movie:
         if not movie_recording_started:
@@ -430,11 +725,12 @@ while True:
             ms.finalize()
         movie_recording_started = 0
     
-    # move fract (transition between prompts) forward
-    d_fract= meta_input.get(akai_midimix="A1", akai_lpd8="E0", val_min=0.0005, val_max=0.05, val_default=0.05)
-    fract += d_fract
+    # move fract forward
+    d_fract_embed = meta_input.get(akai_midimix="A1", akai_lpd8="E0", val_min=0.0005, val_max=0.05, val_default=0.05)
+    fract += d_fract_embed
     fract = np.clip(fract, 0, 1)
     
+
 
         
         
