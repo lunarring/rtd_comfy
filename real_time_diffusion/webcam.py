@@ -121,16 +121,11 @@ cam_img = np.flip(cam_img, axis=1)
 
 # test resolution
 cam_img = cv2.resize(cam_img.astype(np.uint8), (diffusion_input_resolution_w, diffusion_input_resolution_h))
-
 last_cam_img_torch = None
 
 # noise
 noise_img2img_orig = torch.randn((1,4,noise_resolution_h,noise_resolution_w)).half().cuda()
-
 torch_last_diffusion_image = torch.from_numpy(cam_img).to('cuda', dtype=torch.float)
-
-
-
 latents = torch.randn((1,4,noise_resolution_h, noise_resolution_w)).half().cuda()
 
 movie_recording_started = 0
@@ -176,48 +171,22 @@ while True:
     
     # test resolution
     cam_img = cv2.resize(cam_img.astype(np.uint8), (diffusion_input_resolution_w, diffusion_input_resolution_h))
-    
     cam_img_torch = torch.from_numpy(cam_img.copy()).to(latents.device).float()
-    
-
     cam_img_torch = blur(cam_img_torch.permute([2,0,1])[None])[0].permute([1,2,0])
 
 
     if do_add_noise:
         # coef noise
         coef_noise = meta_input.get(akai_midimix="E0", akai_lpd8="E1", val_min=0, val_max=0.5, val_default=0.15)
-        
-        if not do_gray_noise:
-            
-            do_gaussian_noise = meta_input.get(akai_midimix="E4", button_mode="toggle")
-            if do_gaussian_noise:
-                t_rand = (torch.randn(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
-            else:
-                t_rand = (torch.rand(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
-                
-            # t_rand[t_rand < 0.5] = 0
-
-
-        else:
-            t_rand = (torch.rand(cam_img_torch.shape, device=cam_img_torch.device)[:,:,0].unsqueeze(2) - 0.5) * coef_noise * 255
+        t_rand = (torch.rand(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
         cam_img_torch += t_rand
         torch_last_diffusion_image += t_rand
-    
 
-    do_local_accumulate_acid = meta_input.get(akai_midimix="D4", button_mode="toggle")
-    invert_accumulate_acid = meta_input.get(akai_midimix="D3", akai_lpd8="B1", button_mode="toggle")
-  
     acid_strength = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
-        
     acid_freq = meta_input.get(akai_midimix="F2", val_min=0, val_max=10.0, val_default=0)
 
-
     cam_img_torch = torch.clamp(cam_img_torch, 0, 255)
-
-
     cam_img = cam_img_torch.cpu().numpy()
-    
-
     
     use_debug_overlay = meta_input.get(akai_midimix="H3", akai_lpd8="D1", button_mode="toggle")
     if use_debug_overlay:
@@ -236,11 +205,7 @@ while True:
     
     fps = np.round(1/time_difference)
     lt.dynamic_print(f'fps: {fps}')
-    try:
-        torch_last_diffusion_image = torchvision.transforms.functional.pil_to_tensor(image).to(latents.device, dtype=torch.float).permute(1,2,0)
-    except:
-        torch_last_diffusion_image = torch.from_numpy(image).to(latents.device, dtype=torch.float)
-
+    torch_last_diffusion_image = torchvision.transforms.functional.pil_to_tensor(image).to(latents.device, dtype=torch.float).permute(1,2,0)
     
     # Render the image
     renderer.render(image)
