@@ -547,88 +547,15 @@ while True:
         # cam_img_torch += (torch.rand(cam_img_torch.shape, device=cam_img_torch.device)[:,:,0].unsqueeze(2) - 0.5) * coef_noise * 255 * 5
     
 
-    do_accumulate_acid = meta_input.get(akai_midimix="C4", akai_lpd8="B0", button_mode="toggle")
     do_local_accumulate_acid = meta_input.get(akai_midimix="D4", button_mode="toggle")
     invert_accumulate_acid = meta_input.get(akai_midimix="D3", akai_lpd8="B1", button_mode="toggle")
-    # acid_persistence = meta_input.get(akai_midimix="D1", val_min=0.01, val_max=0.99, val_default=0.5)
-    # acid_decay = meta_input.get(akai_midimix="D2", val_min=0.01, val_max=0.5, val_default=0.2)
-    
-    if do_accumulate_acid:
-        ## displacement controlled acid
-        if last_cam_img_torch is None:
-            last_cam_img_torch = cam_img_torch
-        acid_gain = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.5, val_default=0.05)
-            
-        image_displacement_array = ((cam_img_torch - last_cam_img_torch)/255)**2
-        
-        if do_local_accumulate_acid:
-            image_displacement_array = (1-image_displacement_array*100)
-            image_displacement_array = image_displacement_array.clamp(0)
-            if image_displacement_array_accumulated == None:
-                image_displacement_array_accumulated = torch.zeros_like(image_displacement_array)           
-            image_displacement_array_accumulated[image_displacement_array>=0.5] += 2e-2
-            image_displacement_array_accumulated[image_displacement_array<0.5] -= 2e-1
-            image_displacement_array_accumulated = image_displacement_array_accumulated.clamp(0)
-            
-            image_displacement_array_accumulated = image_displacement_array_accumulated.mean(2, keepdims=True)
-            image_displacement_array_accumulated = image_displacement_array_accumulated.repeat([1,1,3])
-            
-            image_displacement_array_accumulated -= image_displacement_array_accumulated.min()
-            image_displacement_array_accumulated /= image_displacement_array_accumulated.max()
-            
-            if invert_accumulate_acid:
-                acid_array = 1-image_displacement_array_accumulated
-                acid_array[acid_array<0.05]=0.05
-                acid_array *= acid_gain                
-            else:
-                acid_array = (image_displacement_array_accumulated)*acid_gain
-
-        
-        else:
-            image_displacement = image_displacement_array.mean()
-            image_displacement = (1-image_displacement*100)
-            if image_displacement < 0:
-                image_displacement = 0
-                
-            if image_displacement >= 0.5:
-                image_displacement_accumulated += 2e-2
-            else:
-                image_displacement_accumulated -= 4e-1
-
-            if image_displacement_accumulated < 0:
-                image_displacement_accumulated = 0
-            
-            if invert_accumulate_acid:
-                acid_strength = max(0.1, 1 - image_displacement_accumulated)
-            else:
-                acid_strength = 0.1 + image_displacement_accumulated * 1
-            acid_strength *= acid_gain
-            acid_strength = min(1, acid_strength)
-        last_cam_img_torch = cam_img_torch.clone()
-    else:
-        acid_strength = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
+  
+    acid_strength = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
         
     acid_freq = meta_input.get(akai_midimix="F2", val_min=0, val_max=10.0, val_default=0)
-    # if acid_freq > 0:
-    #     acid_strength = (np.sin(acid_freq*float(time.time())) + 1)/2
-        
-    
-    # just a test
-    # cam_img_torch = (1.-acid_strength)*cam_img_torch + acid_strength*torch.from_numpy(last_diffusion_image).to(cam_img_torch)
-    if do_accumulate_acid and do_local_accumulate_acid:
-        cam_img_torch = (1.-acid_array)*cam_img_torch + acid_array*torch_last_diffusion_image
-    else:
-        cam_img_torch = (1.-acid_strength)*cam_img_torch + acid_strength*torch_last_diffusion_image
-    # if meta_input.get(akai_midimix='E4', button_mode='pressed_once'):
-    #     xxx
+
+
     cam_img_torch = torch.clamp(cam_img_torch, 0, 255)
-    # paint_decay = 0.999
-    # color_strenght = 1
-    # if apply_body_mask:
-    #     mask_torch = F.interpolate(torch.from_numpy(mask).to(latents.device).float().permute(2,0,1).unsqueeze(0), size=(1024, 1024), mode='bilinear', align_corners=False).squeeze(axis=0).permute(1,2,0)
-    #     if canvas.shape != cam_img_torch.shape:
-    #         canvas = torch.zeros_like(cam_img_torch)
-        
 
     color_matching = meta_input.get(akai_lpd8="G1", akai_midimix="C2", val_min=0, val_max=1, val_default=0.0)
     if color_matching > 0.01:
@@ -641,12 +568,6 @@ while True:
             cam_img_torch, _ = multi_match_gpu([cam_img_torch, torch_last_diffusion_image], weights=[1-color_matching, color_matching], clip_max='auto', gpu=0,  is_input_tensor=True)
 
     cam_img = cam_img_torch.cpu().numpy()
-    
-    # # mask the body
-    # apply_body_mask = meta_input.get(akai_midimix="E3", button_mode="toggle")
-    # if apply_body_mask:
-    #     mask = human_seg.get_mask(cam_img)
-    #     cam_img *= np.expand_dims(mask, axis=2)    
     
     if use_modulated_unet:
         mod_samp = meta_input.get(akai_midimix="H2", val_min=0, val_max=10, val_default=0)
@@ -697,19 +618,10 @@ while True:
         torch_last_diffusion_image = torchvision.transforms.functional.pil_to_tensor(image).to(latents.device, dtype=torch.float).permute(1,2,0)
     except:
         torch_last_diffusion_image = torch.from_numpy(image).to(latents.device, dtype=torch.float)
-    # last_diffusion_image = np.array(image, dtype=np.float32)
-    
-    do_antishift = meta_input.get(akai_midimix="A4", akai_lpd8="D0", button_mode="toggle")
-    x_shift = int(meta_input.get(akai_midimix="B0", akai_lpd8="H0", val_default=0, val_max=10, val_min=-10))
-    y_shift = int(meta_input.get(akai_midimix="B1", akai_lpd8="H1", val_default=0, val_max=10, val_min=-10))
-    if do_antishift:
-        torch_last_diffusion_image = torch.roll(torch_last_diffusion_image, (y_shift, x_shift), (0,1))
-        
 
     
     # Render the image
     renderer.render(image)
-    
 
     do_record_movie = meta_input.get(akai_midimix="I1", button_mode="toggle")
     if do_record_movie:
