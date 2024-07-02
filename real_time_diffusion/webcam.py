@@ -1,48 +1,41 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-#%%`
 import sys
-from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image
-from diffusers.models import AutoencoderKL, ImageProjection, UNet2DConditionModel
+import os
 import torch
-import time
+from diffusers import AutoPipelineForImage2Image
 from diffusers import AutoencoderTiny
-from diffusers.utils import load_image
-import random
-import xformers
-import triton
+import datetime
+import time
 import lunar_tools as lt
 from PIL import Image
 import numpy as np
-from diffusers.utils.torch_utils import randn_tensor
-
-import numpy as np
-import xformers
-import triton
-import cv2
-import sys
-from datasets import load_dataset
 from prompt_blender import PromptBlender
-import os
-from typing import List, Tuple
 from human_seg import HumanSeg
-
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 import torchvision
-
 torch.set_grad_enabled(False)
 torch.backends.cuda.matmul.allow_tf32 = False
 torch.backends.cudnn.allow_tf32 = False 
 
-import matplotlib.pyplot as plt
-import cv2
-
-
 
 def get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired, latent_div=16, autoenc_div=8):
+    """
+    This function calculates the correct dimensions for the diffusion process based on the desired dimensions. 
+    It ensures that the dimensions are divisible by the latent_div and autoenc_div parameters. 
+    If the desired dimensions are not divisible, it adjusts them to the nearest divisible number and returns the corrected dimensions.
+
+    Args:
+        height_diffusion_desired (int): The desired height for the diffusion process.
+        width_diffusion_desired (int): The desired width for the diffusion process.
+        latent_div (int, optional): The divisor for the latent dimensions. Defaults to 16.
+        autoenc_div (int, optional): The divisor for the autoencoder dimensions. Defaults to 8.
+
+    Returns:
+        height_diffusion_corrected (int): The corrected height for the diffusion process.
+        width_diffusion_corrected (int): The corrected width for the diffusion process.
+        height_latents (int): The height of the latent space.
+        width_latents (int): The width of the latent space.
+    """
     height_latents = round(height_diffusion_desired / autoenc_div)
     height_latents = round(latent_div * height_latents / latent_div)
     height_diffusion_corrected = int(height_latents * autoenc_div)
@@ -59,8 +52,6 @@ def get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired, 
 
 
 
-
-
 #%% VARS
 shape_cam = (300,400)
 height_diffusion_desired = 768
@@ -68,9 +59,6 @@ width_diffusion_desired = 1024
 do_compile = False
 
 sz_renderwin = (int(512*2.09), int(512*3.85))
-resolution_factor = 8
-base_w = 12
-base_h = 16
 
 guidance_scale = 0.5
 strength = 0.5
@@ -113,18 +101,22 @@ human_seg = HumanSeg(resizing_factor=resizing_factor_humanseg)
 
 # Promptblender
 blender = PromptBlender(pipe)
+
+# Controls (keyboard, midi devices)
 meta_input = lt.MetaInput()
+
+# Speech detector
 speech_detector = lt.Speech2Text()
 
+# Render windows
 renderer = lt.Renderer(width=sz_renderwin[1], height=sz_renderwin[0])
+
+# Median blurring
 blur = lt.MedianBlur((7, 7))
 
 
-    
-#%%
-prompt = 'Bizarre creature from Hieronymus Bosch painting "A Garden of Earthly Delights" on a schizophrenic ayahuasca trip'
-
 # runtime vars
+prompt = 'Bizarre creature from Hieronymus Bosch painting "A Garden of Earthly Delights" on a schizophrenic ayahuasca trip'
 fract = 0
 last_render_timestamp = time.time()
 
@@ -134,15 +126,14 @@ prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_pro
 
 cam_img = cam.get_img()
 cam_img = np.flip(cam_img, axis=1)
-
-cam_img = cv2.resize(cam_img.astype(np.uint8), (width_diffusion, height_diffusion))
+cam_img = lt.resize(cam_img, size=(height_diffusion, width_diffusion))
 
 # noise
-noise_img2img_orig = torch.randn((1,4,height_latents,width_latents)).half().cuda()
+noise_img2img_orig = torch.randn((1, 4, height_latents, width_latents)).half().cuda()
 torch_last_diffusion_image = torch.from_numpy(cam_img).to('cuda', dtype=torch.float)
 latents = torch.randn((1,4,height_latents, width_latents)).half().cuda()
 
-movie_recording_started = 0
+movie_recording_started = False
 
 while True:
     do_fix_seed = not meta_input.get(akai_midimix='F3', button_mode='toggle')
@@ -181,7 +172,7 @@ while True:
         cam_img = human_seg.apply_mask(cam_img, mask_strength=mask_strength)
     
     # median filter
-    cam_img = cv2.resize(cam_img.astype(np.uint8), (width_diffusion, height_diffusion))
+    cam_img = lt.resize(cam_img, size=(height_diffusion, width_diffusion))
     cam_img_torch = torch.from_numpy(cam_img.copy()).to(latents.device).float()
     cam_img_torch = blur(cam_img_torch.permute([2,0,1])[None])[0].permute([1,2,0])
 
@@ -200,10 +191,10 @@ while True:
     
     use_debug_overlay = meta_input.get(akai_midimix="H3", akai_lpd8="D1", button_mode="toggle")
     if use_debug_overlay:
-        image = cam_img.astype(np.uint8)
+        render_image = cam_img.astype(np.uint8)
 
     else:
-        image = pipe(image=Image.fromarray(cam_img.astype(np.uint8)), 
+        render_image = pipe(image=Image.fromarray(cam_img.astype(np.uint8)), 
                       latents=latents, num_inference_steps=num_inference_steps, strength=strength, 
                       guidance_scale=guidance_scale, prompt_embeds=prompt_embeds, 
                       negative_prompt_embeds=negative_prompt_embeds, 
@@ -212,29 +203,29 @@ while True:
         
     time_difference = time.time() - last_render_timestamp
     last_render_timestamp = time.time()
-    
-    fps = np.round(1/time_difference)
-    lt.dynamic_print(f'fps: {fps}')
-    torch_last_diffusion_image = torchvision.transforms.functional.pil_to_tensor(image).to(latents.device, dtype=torch.float).permute(1,2,0)
+    fps = 1/time_difference
+    lt.dynamic_print(f'fps: {fps:2.2f}')
+
+    torch_last_diffusion_image = torchvision.transforms.functional.pil_to_tensor(render_image).to(latents.device, dtype=torch.float).permute(1,2,0)
     
     # Render the image
-    renderer.render(image)
+    renderer.render(render_image)
 
-    do_record_movie = meta_input.get(akai_midimix="I1", button_mode="toggle")
+    do_record_movie = meta_input.get(akai_midimix="I1", akai_lpd8="D0", button_mode="toggle")
     if do_record_movie:
         if not movie_recording_started:
-            movie_recording_started = 1
-            time_stamp = str(time.time())
+            movie_recording_started = True
+            time_stamp = datetime.datetime.now().strftime("%y%m%d_%H%M")
             os.makedirs('./movies_out', exist_ok=True)
-            fp_movie_out = f'./movies_out/movie_{time_stamp}.mp4'
-            ms = lt.MovieSaver(fp_movie_out, fps=fps)
-        ms.write_frame(image)
+            fp_movie_out = f'./recordings/recording_{time_stamp}.mp4'
+            ms = lt.MovieSaverThreaded(fp_movie_out, fps=fps)
+        ms.write_frame(render_image)
     else:
         if movie_recording_started:
             ms.finalize()
-        movie_recording_started = 0
+        movie_recording_started = False
     
-    # move fract forward
+    # move fract forward for smooth prompt transitions
     d_fract_embed = meta_input.get(akai_midimix="A1", akai_lpd8="E0", val_min=0.0005, val_max=0.05, val_default=0.05)
     fract += d_fract_embed
     fract = np.clip(fract, 0, 1)
