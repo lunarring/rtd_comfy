@@ -40,8 +40,31 @@ torch.backends.cudnn.allow_tf32 = False
 import matplotlib.pyplot as plt
 import cv2
 
+
+
+def get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired, latent_div=16, autoenc_div=8):
+    height_latents = round(height_diffusion_desired / autoenc_div)
+    height_latents = round(latent_div * height_latents / latent_div)
+    height_diffusion_corrected = int(height_latents * autoenc_div)
+
+    width_latents = round(width_diffusion_desired / autoenc_div)
+    width_latents = round(latent_div * width_latents / latent_div)
+    width_diffusion_corrected = int(width_latents * autoenc_div)
+
+    if height_diffusion_corrected != height_diffusion_desired or width_diffusion_corrected != width_diffusion_desired:
+        print(f"Autocorrected the given dimensions. Corrected: ({height_diffusion_corrected}, {width_diffusion_corrected}), Given: ({height_diffusion_desired}, {width_diffusion_desired})")
+
+    return height_diffusion_corrected, width_diffusion_corrected, height_latents, width_latents
+        
+
+
+
+
+
 #%% VARS
 shape_cam = (300,400)
+height_diffusion_desired = 768
+width_diffusion_desired = 1024
 do_compile = False
 
 sz_renderwin = (int(512*2.09), int(512*3.85))
@@ -49,24 +72,18 @@ resolution_factor = 8
 base_w = 12
 base_h = 16
 
-do_add_noise = True
 guidance_scale = 0.5
 strength = 0.5
 num_inference_steps = 2
+
+resizing_factor_humanseg = 0.5
 
 negative_prompt = "blurry, bland, black and white, monochromatic"
 model_turbo = "stabilityai/sdxl-turbo"
 model_vae = "madebyollin/taesdxl"
 
-#%%
-noise_resolution_w = base_w*resolution_factor
-noise_resolution_h = base_h*resolution_factor
-
-diffusion_input_resolution_w = base_w*8*resolution_factor
-diffusion_input_resolution_h = base_h*8*resolution_factor
-
-
 #%% Inits
+height_diffusion, width_diffusion, height_latents, width_latents = get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired)
 cam = lt.WebCam(cam_id=-1, shape_hw=shape_cam)
 cam.autofocus_enable()
 
@@ -92,7 +109,7 @@ if do_compile:
     pipe = compile(pipe, config)
     
 # human body segmentation
-human_seg = HumanSeg()
+human_seg = HumanSeg(resizing_factor=resizing_factor_humanseg)
 
 # Promptblender
 blender = PromptBlender(pipe)
@@ -118,15 +135,12 @@ prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_pro
 cam_img = cam.get_img()
 cam_img = np.flip(cam_img, axis=1)
 
-
-# test resolution
-cam_img = cv2.resize(cam_img.astype(np.uint8), (diffusion_input_resolution_w, diffusion_input_resolution_h))
-last_cam_img_torch = None
+cam_img = cv2.resize(cam_img.astype(np.uint8), (width_diffusion, height_diffusion))
 
 # noise
-noise_img2img_orig = torch.randn((1,4,noise_resolution_h,noise_resolution_w)).half().cuda()
+noise_img2img_orig = torch.randn((1,4,height_latents,width_latents)).half().cuda()
 torch_last_diffusion_image = torch.from_numpy(cam_img).to('cuda', dtype=torch.float)
-latents = torch.randn((1,4,noise_resolution_h, noise_resolution_w)).half().cuda()
+latents = torch.randn((1,4,height_latents, width_latents)).half().cuda()
 
 movie_recording_started = 0
 
@@ -134,8 +148,6 @@ while True:
     do_fix_seed = not meta_input.get(akai_midimix='F3', button_mode='toggle')
     if do_fix_seed:
         torch.manual_seed(420)
-    
-    do_gray_noise = meta_input.get(akai_midimix="G4", button_mode="toggle")
     
     do_record_mic = meta_input.get(keyboard='r', button_mode='pressed_once')
     
@@ -157,34 +169,32 @@ while True:
                 print(f"FAIL {e}")
             
     prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds = blender.blend_stored_embeddings(fract)
+    
     cam_img = cam.get_img()
     cam_img = np.flip(cam_img, axis=1)
     
     # mask the body
-    apply_body_mask = meta_input.get(akai_midimix="E3", button_mode="toggle")
+    apply_body_mask = meta_input.get(akai_midimix="E3", akai_lpd8="A0", button_mode="toggle", val_default=True)
     if apply_body_mask:
         mask_strength = meta_input.get(akai_midimix="E2", val_min=0.0, val_max=1.0, val_default=1)
-        mask = np.expand_dims(human_seg.get_mask(cam_img), axis=2)
-        cam_img_masked = cam_img * mask
-        cam_img = (1-mask_strength)*cam_img + mask_strength * cam_img_masked
-        cam_img = cam_img.astype(np.uint8)
+        human_seg.get_mask(cam_img)
+        cam_img = human_seg.apply_mask(cam_img, mask_strength=mask_strength)
     
-    # test resolution
-    cam_img = cv2.resize(cam_img.astype(np.uint8), (diffusion_input_resolution_w, diffusion_input_resolution_h))
+    # median filter
+    cam_img = cv2.resize(cam_img.astype(np.uint8), (width_diffusion, height_diffusion))
     cam_img_torch = torch.from_numpy(cam_img.copy()).to(latents.device).float()
     cam_img_torch = blur(cam_img_torch.permute([2,0,1])[None])[0].permute([1,2,0])
 
 
-    if do_add_noise:
-        # coef noise
-        coef_noise = meta_input.get(akai_midimix="E0", akai_lpd8="E1", val_min=0, val_max=0.5, val_default=0.15)
-        t_rand = (torch.rand(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
-        cam_img_torch += t_rand
-        torch_last_diffusion_image += t_rand
+    # add noise
+    coef_noise = meta_input.get(akai_lpd8="E1", val_min=0, val_max=0.5, val_default=0.15)
+    t_rand = (torch.rand(cam_img_torch.shape[0], cam_img_torch.shape[1], 3, device=cam_img_torch.device) - 0.5) * coef_noise * 255
+    cam_img_torch += t_rand
+    torch_last_diffusion_image += t_rand
 
-    acid_strength = meta_input.get(akai_midimix="C0", akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
-    acid_freq = meta_input.get(akai_midimix="F2", val_min=0, val_max=10.0, val_default=0)
-
+    # acid
+    acid_strength = meta_input.get(akai_lpd8="F0", val_min=0, val_max=0.8, val_default=0.11)
+    cam_img_torch = (1.-acid_strength)*cam_img_torch + acid_strength*torch_last_diffusion_image
     cam_img_torch = torch.clamp(cam_img_torch, 0, 255)
     cam_img = cam_img_torch.cpu().numpy()
     
