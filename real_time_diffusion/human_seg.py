@@ -7,7 +7,7 @@ from PIL import Image
 from torchvision import transforms
 import torchvision
 import time
-
+import lunar_tools as lt
 
 class HumanSeg():
     """
@@ -55,7 +55,7 @@ class HumanSeg():
         input_tensor = self.preprocess(input_image)
         if self.resizing_factor is not None or self.size is not None:
             size_orig = input_image.size
-            input_tensor = resize(input_tensor, resizing_factor=self.resizing_factor, size=self.size)
+            input_tensor = lt.resize(input_tensor, resizing_factor=self.resizing_factor, size=self.size)
 
         input_batch = input_tensor.unsqueeze(0) # create a mini-batch as expected by the model
         
@@ -70,7 +70,7 @@ class HumanSeg():
         mask = (mask == self.sel_id).astype(np.uint8)
 
         if self.resizing_factor is not None or self.size is not None:
-            mask = resize(mask, size=(input_image.size[1], input_image.size[0]))
+            mask = lt.resize(mask, size=(input_image.size[1], input_image.size[0]))
             mask = np.round(mask)
             mask = np.where(mask > 0.5, 1, 0)
 
@@ -110,80 +110,7 @@ class HumanSeg():
 
         return masked_img
 
-
-
-
-def resize(input_img, resizing_factor=None, size=None, resample_method='bicubic', force_device=None):
-    """
-    This function is used to convert a numpy image array, a PIL image, or a tensor to a tensor and resize it by a given downscaling factor or to a given size.
-
-    Args:
-        input_img (np.ndarray, PIL.Image, or torch.Tensor): The input image to be converted and resized.
-        size (tuple, optional): The desired size (height, width) for the output tensor. If provided, this overrides the downscaling_factor.
-        resizing_factor (float, optional): The factor by which to downscale the input tensor. Defaults to None. Ignored if size is provided.
-        resample_method (str, optional): The resampling method used for resizing. Defaults to 'bilinear'. Options: 'bilinear', 'nearest', 'bicubic', 'lanczos'.
-        force_device (str, optional): The device to which the tensor should be moved. If not provided, the device of the input_img is used.
-
-    Returns:
-        np.ndarray, PIL.Image, or torch.Tensor: The converted and resized image.
-    """
-    t0 = time.time()
     
-    input_type = type(input_img)
-    input_dtype = None
-    
-    if force_device is not None:
-        device = force_device
-    elif input_type == torch.Tensor:
-        device = input_img.device
-    else:
-        device = 'cpu'
-    
-    if input_type == np.ndarray:
-        input_dtype = input_img.dtype
-        if len(input_img.shape) == 3:
-            input_tensor = torch.as_tensor(input_img, dtype=torch.float, device=device).permute(2, 0, 1)
-        elif len(input_img.shape) == 2:
-            input_tensor = torch.as_tensor(input_img, dtype=torch.float, device=device).unsqueeze(0)
-    elif input_type == Image.Image:
-        input_tensor = torch.as_tensor(np.array(input_img), dtype=torch.float, device=device).permute(2, 0, 1)
-    elif input_type == torch.Tensor:
-        input_dtype = input_img.dtype
-        input_tensor = input_img.clone().to(dtype=torch.float, device=device)
-    else:
-        raise TypeError("input_img should be of type np.ndarray, PIL.Image, or torch.Tensor")
-    if (size is not None) and (resizing_factor is not None):
-        raise ValueError("Provide either size or downscaling_factor, not both.")
-    elif (size is None) and (resizing_factor is None):
-        raise ValueError("Either size or downscaling_factor must be provided.")
-    elif size is not None:
-        size = size
-    else:
-        if len(input_tensor.shape) == 3:
-            size = (int(input_tensor.shape[1] * resizing_factor), int(input_tensor.shape[2] * resizing_factor))
-        elif len(input_tensor.shape) == 4:
-            size = (int(input_tensor.shape[2] * resizing_factor), int(input_tensor.shape[3] * resizing_factor))
-    
-    supported_resample_methods = ['bilinear', 'nearest', 'bicubic', 'lanczos']
-    
-    if resample_method not in supported_resample_methods:
-        raise ValueError(f"Unsupported resample method: {resample_method}. Choose from 'bilinear', 'nearest', 'bicubic', 'lanczos'.")
-    
-    resized_tensor = torch.nn.functional.interpolate(input_tensor.unsqueeze(0), size=size, mode=resample_method).squeeze(0)
-    
-    if input_type == np.ndarray:
-        if len(input_img.shape) == 3:
-            resized_tensor = resized_tensor.permute(1,2,0).cpu()
-        elif len(input_img.shape) == 2:
-            resized_tensor = resized_tensor.squeeze(0).cpu()
-        resized_array = np.clip(np.round(resized_tensor.numpy()), 0, 255).astype(input_dtype)
-        return resized_array
-    elif input_type == Image.Image:
-        resized_tensor = resized_tensor.permute(1,2,0).cpu()
-        resized_array = np.clip(np.round(resized_tensor.numpy()), 0, 255).astype('uint8')
-        return Image.fromarray(resized_array, 'RGB')
-    else:
-        return resized_tensor.to(input_dtype)
 
 
 if __name__ == '__main__x':
@@ -195,8 +122,8 @@ if __name__ == '__main__x':
     input_img = Image.fromarray(cam.get_img())
     
     t0 = time.time()
-    cx = resize(input_img, size=(200,300))
-    # cy = input_img.resize((300,200))
+    cx = lt.resize(input_img, size=(200,300))
+    # cy = input_img.lt.resize((300,200))
     dt = time.time() - t0
     print(f"total: {1000*dt}")
     
