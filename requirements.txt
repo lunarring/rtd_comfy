@@ -1,0 +1,8 @@
+diffusers==0.26.3
+lpips==0.1.4
+matplotlib==3.8.3
+numpy==2.0.0
+Pillow==10.4.0
+stable_fast==1.0.4+torch220cu121
+torch==2.2.0
+torchvision==0.17.0
