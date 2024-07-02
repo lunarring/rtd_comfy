@@ -5,6 +5,8 @@ import torch
 import numpy as np
 from PIL import Image
 from torchvision import transforms
+import torchvision
+import time
 
 
 class HumanSeg():
@@ -15,10 +17,12 @@ class HumanSeg():
     
     Attributes:
         model: The pre-trained model used for human segmentation. available models: deeplabv3_resnet50 / deeplabv3_resnet101 / deeplabv3_mobilenet_v3_large
+        size (tuple, optional): The desired size (height, width) for the output tensor. If provided, this overrides the downscaling_factor.
+        resizing_factor (float, optional): The factor by which to downscale the input tensor. Defaults to None. Ignored if size is provided.
         preprocess: The preprocessing transformations applied on the input image before feeding it to the model.
     """
     # 
-    def __init__(self, model_name='deeplabv3_resnet101'):
+    def __init__(self, model_name='deeplabv3_resnet101', resizing_factor=None, size=None):
         self.model = torch.hub.load('pytorch/vision:v0.10.0', model_name, pretrained=True)
         
         self.model.eval()
@@ -28,14 +32,31 @@ class HumanSeg():
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ])
+
+        self.sel_id = 15 # human body code
+        self.resizing_factor = resizing_factor
+        self.size = size
+        self.mask = None
+
         
-    def get_mask(self, cam_img):
-        sel_id = 15 # human body code
-        
-        input_image = Image.fromarray(cam_img)
+    def get_mask(self, input_img):
+        """
+        This method generates a binary mask for the human body in the given image. The mask can be used for various applications like background removal, human pose estimation etc.
+
+        Args:
+            cam_img (np.ndarray): The input image in which the human body is to be segmented. The image should be in RGB format.
+
+        Returns:
+            sets self.mask, a binary mask for the human body in the input image. The mask is of the same size as the input image.
+        """
+        input_image = Image.fromarray(input_img)
         input_image = input_image.convert("RGB")
         
         input_tensor = self.preprocess(input_image)
+        if self.resizing_factor is not None or self.size is not None:
+            size_orig = input_image.size
+            input_tensor = resize(input_tensor, resizing_factor=self.resizing_factor, size=self.size)
+
         input_batch = input_tensor.unsqueeze(0) # create a mini-batch as expected by the model
         
         # move the input and model to GPU for speed if available
@@ -45,22 +66,158 @@ class HumanSeg():
             output = self.model(input_batch)['out'][0]
         output_predictions = output.argmax(0)
         mask = output_predictions.byte().cpu().numpy()
+
+        mask = (mask == self.sel_id).astype(np.uint8)
+
+        if self.resizing_factor is not None or self.size is not None:
+            mask = resize(mask, size=(input_image.size[1], input_image.size[0]))
+            mask = np.round(mask)
+            mask = np.where(mask > 0.5, 1, 0)
+
+        self.mask = mask
+
+
+    def apply_mask(self, input_img, mask_strength=1, invert_mask=False):
+        """
+        This method applies the previously generated mask to the input image.
+
+        Args:
+            input_img (np.ndarray): The input image to which the mask is to be applied. The image should be in RGB format.
+            invert_mask (bool): If set to True, the mask will be inverted before being applied.
+
+        Returns:
+            np.ndarray: The masked image.
+        """
+        if self.mask is None:
+            raise ValueError("No mask has been generated. Please call get_mask() first.")
+        is_pil = False
+        if isinstance(input_img, Image.Image):
+            is_pil = True
+            input_img = np.array(input_img)
+        assert input_img.shape[:2] == self.mask.shape, "The input image and the mask must have the same dimensions."
+        assert 0 <= mask_strength <= 1, "mask_strength should be between 0 and 1"
         
-        mask = (mask == sel_id).astype(np.uint8)
+        mask = 1 - self.mask if invert_mask else self.mask
+        masked_img = input_img * np.expand_dims(mask, axis=2)
         
-        return mask
+        if mask_strength != 1:
+            input_img = input_img.astype(float)
+            masked_img = masked_img.astype(float)
+            masked_img = (1-mask_strength)*input_img + mask_strength * masked_img
+            masked_img = np.round(masked_img)
+            masked_img = np.clip(masked_img, 0, 255)
+            masked_img = masked_img.astype(np.uint8)
+
+        return masked_img
+
+
+
+
+def resize(input_img, resizing_factor=None, size=None, resample_method='bicubic', force_device=None):
+    """
+    This function is used to convert a numpy image array, a PIL image, or a tensor to a tensor and resize it by a given downscaling factor or to a given size.
+
+    Args:
+        input_img (np.ndarray, PIL.Image, or torch.Tensor): The input image to be converted and resized.
+        size (tuple, optional): The desired size (height, width) for the output tensor. If provided, this overrides the downscaling_factor.
+        resizing_factor (float, optional): The factor by which to downscale the input tensor. Defaults to None. Ignored if size is provided.
+        resample_method (str, optional): The resampling method used for resizing. Defaults to 'bilinear'. Options: 'bilinear', 'nearest', 'bicubic', 'lanczos'.
+        force_device (str, optional): The device to which the tensor should be moved. If not provided, the device of the input_img is used.
+
+    Returns:
+        np.ndarray, PIL.Image, or torch.Tensor: The converted and resized image.
+    """
+    t0 = time.time()
+    
+    input_type = type(input_img)
+    input_dtype = None
+    
+    if force_device is not None:
+        device = force_device
+    elif input_type == torch.Tensor:
+        device = input_img.device
+    else:
+        device = 'cpu'
+    
+    if input_type == np.ndarray:
+        input_dtype = input_img.dtype
+        if len(input_img.shape) == 3:
+            input_tensor = torch.as_tensor(input_img, dtype=torch.float, device=device).permute(2, 0, 1)
+        elif len(input_img.shape) == 2:
+            input_tensor = torch.as_tensor(input_img, dtype=torch.float, device=device).unsqueeze(0)
+    elif input_type == Image.Image:
+        input_tensor = torch.as_tensor(np.array(input_img), dtype=torch.float, device=device).permute(2, 0, 1)
+    elif input_type == torch.Tensor:
+        input_dtype = input_img.dtype
+        input_tensor = input_img.clone().to(dtype=torch.float, device=device)
+    else:
+        raise TypeError("input_img should be of type np.ndarray, PIL.Image, or torch.Tensor")
+    if (size is not None) and (resizing_factor is not None):
+        raise ValueError("Provide either size or downscaling_factor, not both.")
+    elif (size is None) and (resizing_factor is None):
+        raise ValueError("Either size or downscaling_factor must be provided.")
+    elif size is not None:
+        size = size
+    else:
+        if len(input_tensor.shape) == 3:
+            size = (int(input_tensor.shape[1] * resizing_factor), int(input_tensor.shape[2] * resizing_factor))
+        elif len(input_tensor.shape) == 4:
+            size = (int(input_tensor.shape[2] * resizing_factor), int(input_tensor.shape[3] * resizing_factor))
+    
+    supported_resample_methods = ['bilinear', 'nearest', 'bicubic', 'lanczos']
+    
+    if resample_method not in supported_resample_methods:
+        raise ValueError(f"Unsupported resample method: {resample_method}. Choose from 'bilinear', 'nearest', 'bicubic', 'lanczos'.")
+    
+    resized_tensor = torch.nn.functional.interpolate(input_tensor.unsqueeze(0), size=size, mode=resample_method).squeeze(0)
+    
+    if input_type == np.ndarray:
+        if len(input_img.shape) == 3:
+            resized_tensor = resized_tensor.permute(1,2,0).cpu()
+        elif len(input_img.shape) == 2:
+            resized_tensor = resized_tensor.squeeze(0).cpu()
+        resized_array = np.clip(np.round(resized_tensor.numpy()), 0, 255).astype(input_dtype)
+        return resized_array
+    elif input_type == Image.Image:
+        resized_tensor = resized_tensor.permute(1,2,0).cpu()
+        resized_array = np.clip(np.round(resized_tensor.numpy()), 0, 255).astype('uint8')
+        return Image.fromarray(resized_array, 'RGB')
+    else:
+        return resized_tensor.to(input_dtype)
+
+
+if __name__ == '__main__x':
+    import lunar_tools as lt
+    import matplotlib.pyplot as plt
+    shape_cam=(1080,1920) 
+    cam = lt.WebCam(cam_id=-1, shape_hw=shape_cam)
+    
+    input_img = Image.fromarray(cam.get_img())
+    
+    t0 = time.time()
+    cx = resize(input_img, size=(200,300))
+    # cy = input_img.resize((300,200))
+    dt = time.time() - t0
+    print(f"total: {1000*dt}")
+    
+    
+
 
 if __name__ == '__main__':
     import lunar_tools as lt
     import matplotlib.pyplot as plt
+    
     shape_cam=(300,400) 
     cam = lt.WebCam(cam_id=-1, shape_hw=shape_cam)
     
-    human_seg = HumanSeg()
+    human_seg = HumanSeg(resizing_factor=1.0)
+    
+    #%%
     while True:
         cam_img = cam.get_img()
         cam_img = np.flip(cam_img, axis=1)    
     
-        mask = human_seg.get_mask(cam_img)
+        human_seg.get_mask(cam_img)
+        img = human_seg.apply_mask(cam_img)
         
-        plt.imshow(mask); plt.ion(); plt.show()        
+        plt.imshow(img); plt.ion(); plt.show()        
