@@ -1,4 +1,5 @@
 # Byte-compiled / optimized / DLL files
+rtd/logs/*
 logs/*
 real_time_diffusion/logs/*
 data_exp/*
