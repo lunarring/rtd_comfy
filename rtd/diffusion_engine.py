@@ -1,5 +1,4 @@
 import numpy as np
-
 from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image
 from diffusers.models import UNet2DConditionModel
 from diffusers import AutoencoderTiny
@@ -7,11 +6,10 @@ import torch
 from PIL import Image
 import lunar_tools as lt
 from torch.nn import functional as F
-
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
-
+from embeddings_mixer import EmbeddingsMixer
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 
@@ -622,7 +620,10 @@ class DiffusionEngine():
         with a torch_dtype of float16 and variant "fp16". The model is loaded from local files only. 
         The number of inference steps is set to 2 and the pipeline is initialized with the loaded model.
         """
-        pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+        try:
+            pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+        except Exception as e:
+            pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False)
         self.num_inference_steps = 2
         self._init_pipe(pipe)
 
@@ -632,8 +633,11 @@ class DiffusionEngine():
         with a torch_dtype of float16 and variant "fp16". The model is loaded from local files only. 
         The number of inference steps is set to 1 and the pipeline is initialized with the loaded model.
         """
+        try:
+            pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+        except Exception as e:
+            pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False)
         self.num_inference_steps = 1
-        pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
         self._init_pipe(pipe)
 
     def _init_pipe(self, pipe):
@@ -747,7 +751,7 @@ if __name__ == "__main__experimental":
     # import util
 
     # from u_unet_modulated import forward_modulated
-    from embeds_mixer import EmbedMixer
+    from embeddings_mixer import EmbeddingsMixer
     # init latents
     pb.w = de.width_latents
     pb.h = de.height_latents
@@ -808,7 +812,7 @@ if __name__ == "__main__experimental":
     
 if __name__ == '__main__':
     de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=700, width_diffusion_desired=1024)
-    em = EmbedMixer(de_txt.pipe)
+    em = EmbeddingsMixer(de_txt.pipe)
     embeds = em.encode_prompt("photo of a house")
     de_txt.set_embeddings(embeds)
     img_init = de_txt.generate()
