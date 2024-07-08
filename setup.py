@@ -7,7 +7,7 @@ with open('requirements.txt') as f:
 setup(
     name='realtimediffusion',
     version='0.1',
-    url='https://github.com/lunarring/real_time_diffusion',
+    url='https://github.com/lunarring/rtd',
     description='Real time diffusion',
     long_description=open('README.md').read(),
     install_requires=[
