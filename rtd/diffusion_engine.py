@@ -589,6 +589,7 @@ class DiffusionEngine():
         use_image2image = True,
         use_tinyautoenc = True,
         device = 'cuda',
+        hf_model = 'stabilityai/sdxl-turbo',
         do_compile = False, 
     ):
         height_diffusion_corrected, width_diffusion_corrected, height_latents, width_latents = get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired)
@@ -599,6 +600,7 @@ class DiffusionEngine():
         self.do_compile = do_compile
         self.use_tinyautoenc = use_tinyautoenc
         self.device = device
+        self.hf_model = hf_model
 
         self.num_inference_steps = None
         self.guidance_scale = 0.0
@@ -614,24 +616,24 @@ class DiffusionEngine():
             self._init_text2image()
 
 
-    def _init_image2image(self, hf_model="stabilityai/sdxl-turbo"):
+    def _init_image2image(self):
         """
         This method initializes the image-to-image pipeline. It loads the pretrained model from huggingface hf_model
         with a torch_dtype of float16 and variant "fp16". The model is loaded from local files only. 
         The number of inference steps is set to 2 and the pipeline is initialized with the loaded model.
         """
-        pipe = AutoPipelineForImage2Image.from_pretrained(hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+        pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
         self.num_inference_steps = 2
         self._init_pipe(pipe)
 
-    def _init_text2image(self, hf_model):
+    def _init_text2image(self):
         """
         This method initializes the text-to-image pipeline. It loads the pretrained model from huggingface hf_model
         with a torch_dtype of float16 and variant "fp16". The model is loaded from local files only. 
         The number of inference steps is set to 1 and the pipeline is initialized with the loaded model.
         """
         self.num_inference_steps = 1
-        pipe = AutoPipelineForText2Image.from_pretrained(hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+        pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
         self._init_pipe(pipe)
 
     def _init_pipe(self, pipe):
