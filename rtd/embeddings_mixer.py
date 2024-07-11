@@ -26,6 +26,7 @@ class EmbeddingsMixer:
         self.prompts_embeds = []
         self.list_prompts = []
 
+    @torch.no_grad()
     def encode_prompt(self, prompt, negative_prompt=""):
         """
         Encodes a text prompt into embeddings using the model pipeline.
@@ -53,7 +54,7 @@ class EmbeddingsMixer:
         embeds = [prompt_embeds, negative_prompt_embeds, pooled_prompt_embeds, negative_pooled_prompt_embeds]
         return embeds
     
-    
+    @torch.no_grad()
     def encode_and_store_prompts(self, list_prompts):
         """
         Sets the list of prompts and encodes them into embeddings.
