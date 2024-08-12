@@ -35,25 +35,26 @@ RUN apt-get update && apt-get install -y \
     x11-apps \
     && rm -rf /var/lib/apt/lists/*
 
-
 RUN pip3 install git+https://github.com/lunarring/lunar_tools
 
+RUN pip3 install torch==2.2.0 torchvision==0.17.0 torchaudio==2.2.0 --index-url https://download.pytorch.org/whl/cu121
 
+RUN pip3 install https://github.com/chengzeyi/stable-fast/releases/download/v1.0.5/stable_fast-1.0.5+torch222cu121-cp310-cp310-manylinux2014_x86_64.whl
 
-RUN pip3 install git+https://github.com/lunarring/real_time_diffusion git+https://github.com/chengzeyi/stable-fast.git@main#egg=stable-fast
+RUN pip3 install diffusers==0.26.3
 
-
+# Clone base repo because why not
+RUN git clone https://github.com/lunarring/lunar_tools.git
+RUN git clone https://github.com/lunarring/rtd.git
 
 # Install Python packages: Basic, then CUDA-compatible, then custom
 RUN pip3 install \
-    torchvision==0.16.0 \
     xformers>=0.0.22 \
-    triton>=2.1.0 \
-    --index-url https://download.pytorch.org/whl/cu121
+    transformers==4.37.2 \
+    accelerate==4.37.2 \
+    triton>=2.1.0 
 
 # Optionally store weights in image
-# RUN mkdir -p /root/.cache/torch/hub/checkpoints/ && curl -o /root/.cache/torch/hub/checkpoints//alexnet-owt-7be5be79.pth https://download.pytorch.org/models/alexnet-owt-7be5be79.pth
 # RUN git lfs install && git clone https://huggingface.co/stabilityai/sdxl-turbo /sdxl-turbo
 
-# Clone base repo because why not
-# RUN git clone https://github.com/lunarring/latentblending.git
+

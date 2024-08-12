@@ -1,6 +1,7 @@
 import numpy as np
 from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image
 from diffusers.models import UNet2DConditionModel
+from diffusers import StableDiffusionXLImg2ImgPipeline
 from diffusers import AutoencoderTiny
 import torch
 from PIL import Image
@@ -12,6 +13,7 @@ import torch.utils.checkpoint
 from embeddings_mixer import EmbeddingsMixer
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
+from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import retrieve_latents
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.loaders import PeftAdapterMixin, UNet2DConditionLoadersMixin
@@ -535,6 +537,79 @@ def forward_modulated(
 
     return UNet2DConditionOutput(sample=sample)
 
+
+def prepare_latents_custom_noise(
+    self, image, timestep, batch_size, num_images_per_prompt, dtype, device, generator=None, add_noise=True):
+    if not isinstance(image, (torch.Tensor, Image.Image, list)):
+        raise ValueError(
+            f"`image` has to be of type `torch.Tensor`, `PIL.Image.Image` or list but is {type(image)}"
+        )
+
+    # Offload text encoder if `enable_model_cpu_offload` was enabled
+    if hasattr(self, "final_offload_hook") and self.final_offload_hook is not None:
+        self.text_encoder_2.to("cpu")
+        torch.cuda.empty_cache()
+
+    image = image.to(device=device, dtype=dtype)
+
+    batch_size = batch_size * num_images_per_prompt
+
+    if image.shape[1] == 4:
+        init_latents = image
+
+    else:
+        # make sure the VAE is in float32 mode, as it overflows in float16
+        if self.vae.config.force_upcast:
+            image = image.float()
+            self.vae.to(dtype=torch.float32)
+
+        if isinstance(generator, list) and len(generator) != batch_size:
+            raise ValueError(
+                f"You have passed a list of generators of length {len(generator)}, but requested an effective batch"
+                f" size of {batch_size}. Make sure the batch size matches the length of the generators."
+            )
+
+        elif isinstance(generator, list):
+            init_latents = [
+                retrieve_latents(self.vae.encode(image[i : i + 1]), generator=generator[i])
+                for i in range(batch_size)
+            ]
+            init_latents = torch.cat(init_latents, dim=0)
+        else:
+            init_latents = retrieve_latents(self.vae.encode(image), generator=generator)
+
+        if self.vae.config.force_upcast:
+            self.vae.to(dtype)
+
+        init_latents = init_latents.to(dtype)
+        init_latents = self.vae.config.scaling_factor * init_latents
+
+    if batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] == 0:
+        # expand init_latents for batch_size
+        additional_image_per_prompt = batch_size // init_latents.shape[0]
+        init_latents = torch.cat([init_latents] * additional_image_per_prompt, dim=0)
+    elif batch_size > init_latents.shape[0] and batch_size % init_latents.shape[0] != 0:
+        raise ValueError(
+            f"Cannot duplicate `image` of batch size {init_latents.shape[0]} to {batch_size} text prompts."
+        )
+    else:
+        init_latents = torch.cat([init_latents], dim=0)
+
+    if add_noise:
+        shape = init_latents.shape
+        # noise = randn_tensor(shape, generator=generator, device=device, dtype=dtype)
+        if hasattr(self, "noise_img2img"):
+            noise = self.noise_img2img
+        else:
+            noise = torch.randn(shape, generator=generator, device=device, dtype=dtype)
+        
+        # get latents
+        init_latents = self.scheduler.add_noise(init_latents, noise, timestep)
+
+    latents = init_latents
+
+    return latents    
+
 def get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired, latent_div=16, autoenc_div=8):
     """
     This function calculates the correct dimensions for the diffusion process based on the desired dimensions. 
@@ -589,23 +664,29 @@ class DiffusionEngine():
         device = 'cuda',
         hf_model = 'stabilityai/sdxl-turbo',
         do_compile = False, 
+        do_stereo_image = False, 
     ):
-        height_diffusion_corrected, width_diffusion_corrected, height_latents, width_latents = get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired)
-        self.height_latents = height_latents
-        self.width_latents = width_latents
-        self.height_diffusion = height_diffusion_corrected
-        self.width_diffusion = width_diffusion_corrected
+        self._init_resolution(height_diffusion_desired, width_diffusion_desired)
         self.do_compile = do_compile
         self.use_tinyautoenc = use_tinyautoenc
         self.device = device
         self.hf_model = hf_model
-
+        
         self.num_inference_steps = None
+        self.seed = 420
         self.guidance_scale = 0.0
         self.strength = 0.5
         self.latents = None
         self.embeds = None
         self.image_init = None
+        self.modulations = {}
+        self.radius_fft_highpass = None
+        self.frequency_filter = None
+        self.noise_img2img = None
+        
+        torch.set_grad_enabled(False)
+        torch.backends.cuda.matmul.allow_tf32 = False
+        torch.backends.cudnn.allow_tf32 = False 
 
         self.use_image2image = use_image2image
         if self.use_image2image:
@@ -613,6 +694,12 @@ class DiffusionEngine():
         else:
             self._init_text2image()
 
+    def _init_resolution(self, height_diffusion_desired, width_diffusion_desired):
+        height_diffusion_corrected, width_diffusion_corrected, height_latents, width_latents = get_diffusion_dimensions(height_diffusion_desired, width_diffusion_desired)
+        self.height_latents = height_latents
+        self.width_latents = width_latents
+        self.height_diffusion = height_diffusion_corrected
+        self.width_diffusion = width_diffusion_corrected
 
     def _init_image2image(self):
         """
@@ -653,6 +740,8 @@ class DiffusionEngine():
         pipe.vae = pipe.vae.cuda()
         pipe.set_progress_bar_config(disable=True)
         pipe.unet.forward = forward_modulated.__get__(pipe.unet, UNet2DConditionModel)
+        if self.use_image2image:
+            pipe.prepare_latents = prepare_latents_custom_noise.__get__(pipe, StableDiffusionXLImg2ImgPipeline)
             
         if self.do_compile:
             from sfast.compilers.diffusion_pipeline_compiler import (compile, CompilationConfig)    
@@ -660,7 +749,7 @@ class DiffusionEngine():
             config = CompilationConfig.Default()
             config.enable_xformers = True
             config.enable_triton = True
-            config.enable_cuda_graph = True
+            config.enable_cuda_graph = False
             # config.enable_jit = True
             # config.enable_jit_freeze = True
             # config.trace_scheduler = True
@@ -672,6 +761,12 @@ class DiffusionEngine():
         self.set_latents()
 
 
+    def set_stereo_image(self, do_stereo_image=False):
+        """
+        This method sets a boolean flag that indicates whether the diffusion has to be applied to left/right stereo image coming from VR
+        """
+        self.do_stereo_image = do_stereo_image
+
     def set_latents(self, latents=None):
         """
         This method sets the latents for the pipeline. If no latents are provided, it generates new latents.
@@ -680,18 +775,30 @@ class DiffusionEngine():
             latents = self.get_latents()
         self.latents = latents
 
-    def get_latents(self):
+    def get_latents(self, force_seed=None):
         """Generates and returns latents."""
+        if force_seed is None:
+            torch.manual_seed(self.seed)
+        else:
+            torch.manual_seed(force_seed)
+            
         return torch.randn((1, 4, self.height_latents, self.width_latents)).half().cuda()
 
     def set_num_inference_steps(self, num_inference_steps):
         """Sets the number of inference steps."""
         self.num_inference_steps = int(num_inference_steps)
+        
+        # choose/set strength automatically
+        if num_inference_steps > 1:
+            strength = 1/num_inference_steps + 0.0001
+        else:
+            strength = 1
+        self.strength = float(strength)
 
     def set_guidance_scale(self, guidance_scale):
         """Sets the guidance scale."""
         self.guidance_scale = float(guidance_scale)
-
+        
     def set_strength(self, strength):
         """Sets the strength, ensuring it's greater than 1/num_inference_steps."""
         # assert strength > 1/self.num_inference_steps, "Increase strength!"
@@ -706,9 +813,22 @@ class DiffusionEngine():
                 image_init = image_init.astype(np.uint8)
             image_init = Image.fromarray(image_init)
         
-        width, height = image_init.size
-        if height != self.height_diffusion or width != self.width_diffusion:
-            image_init = lt.resize(image_init, size=(self.height_diffusion, self.width_diffusion))
+        if self.do_stereo_image:
+            # the left/right eye images are stacked vertically
+            sz = image_init.size
+            img_left_eye = image_init.crop((0, 0, sz[0], sz[1]//2))
+            img_right_eye = image_init.crop((0, sz[1]//2, sz[0], sz[1]))
+            
+            image_init = []
+            for img_eye in [img_left_eye, img_right_eye]:
+                width, height = img_eye.size
+                if height != self.height_diffusion or width != self.width_diffusion:
+                    img_eye = lt.resize(img_eye, size=(self.height_diffusion, self.width_diffusion))
+                image_init.append(img_eye)
+        else:
+            width, height = image_init.size
+            if height != self.height_diffusion or width != self.width_diffusion:
+                image_init = lt.resize(image_init, size=(self.height_diffusion, self.width_diffusion))
         self.image_init = image_init
 
     def set_embeddings(self, *args):
@@ -721,106 +841,270 @@ class DiffusionEngine():
         else:
             raise ValueError("Invalid input. Please provide either four separate embeddings or a list containing the four embeddings.")
 
-    def generate(self):
-        """Generates and returns an image diffusion."""
-        assert self.embeds is not None, "Embeddings not set! Call set_embeddings first."
-        kwargs = {}
-        kwargs['latents'] = self.latents
-        kwargs['num_inference_steps'] = self.num_inference_steps
-        kwargs['guidance_scale'] = self.guidance_scale
-        kwargs['prompt_embeds'] = self.embeds[0]
-        kwargs['negative_prompt_embeds'] = self.embeds[1]
-        kwargs['pooled_prompt_embeds'] = self.embeds[2]
-        kwargs['negative_pooled_prompt_embeds'] = self.embeds[3]
+    def set_dynamic_img2img_noise(self, radius_fft_highpass):
+        radius_fft_highpass = int(radius_fft_highpass)
+        if self.radius_fft_highpass != radius_fft_highpass or self.frequency_filter is None:
+            # Initialize / Reinitialize the highpass
+            self.radius_fft_highpass = radius_fft_highpass
+            self.frequency_filter = lt.FrequencyFilter(self.latents.shape[2:], self.radius_fft_highpass, device=self.pipe.device)
+        
+        torch.manual_seed(self.seed)
+        noise_static = torch.randn(self.latents.shape, device=self.pipe.device).to(self.pipe.device)
+        noise_static = torch.randn(self.latents.shape, device=self.pipe.device).to(self.pipe.device)
+        noise_static = self.frequency_filter.apply_lowpass(noise_static)
 
-        if self.use_image2image:
-            assert self.image_init is not None, "Input image not set! Call set_input_image first."
-            kwargs['image'] = self.image_init
-            kwargs['strength'] = self.strength
-            kwargs['image'] = self.image_init
-            kwargs['strength'] = self.strength
+        torch.manual_seed(np.random.randint(999999999999999))
+        noise_dynamic = torch.randn(self.latents.shape, device=self.pipe.device).to(self.pipe.device)
+        noise_dynamic = self.frequency_filter.apply_highpass(noise_dynamic)
+
+        noise = (noise_static + noise_dynamic).half()
+
+        self.set_img2img_noise(noise)
+
+    def set_img2img_noise(self, noise=None):
+        """
+        This method sets the img2img noise for the pipeline. If no noise is provided, it generates new noise.
+        The noise should have the same shape as self.latents.
+        """
+        if noise is None:
+            torch.manual_seed(self.seed)
+            noise = torch.randn_like(self.latents)
+        elif noise.shape != self.latents.shape:
+            raise ValueError("The provided noise does not match the shape of the latents.")
+        self.pipe.noise_img2img = noise
+
+    def set_decoder_embeddings(self, decoder_embeds):
+        """
+        This method sets the decoder embeddings. The encoder and unet embeddings remain as they were previously set.
+        
+        Args:
+            decoder_embeds (list or tensor): The embeddings for the decoder. If a list is provided, it should contain four elements.
+        """
+        if isinstance(decoder_embeds, list) and len(decoder_embeds) == 4:
+            self.modulations['d0_extra_embeds'] = decoder_embeds[0]
+        else:
+            self.modulations['d0_extra_embeds'] = decoder_embeds
+        
+    def disable_decoder_embeddings(self):
+        """
+        This method disables the decoder embeddings by removing them from the modulations dictionary.
+        """
+        if 'd0_extra_embeds' in self.modulations:
+            del self.modulations['d0_extra_embeds']
+
+    def build_kwargs(self, kwargs_override=None):
+        """
+        This method initializes the kwargs dictionary based on the internally set attributes of the class.
+        If a kwargs_override dictionary is provided, it updates the kwargs dictionary with the values from kwargs_override.
+        
+        Args:
+            kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the kwargs.
             
-        img_diffusion = self.pipe(**kwargs).images[0]
+        Returns:
+            kwargs (dict): The updated kwargs dictionary.
+        """
+
+
+        kwargs = {
+            'latents': self.latents,
+            'num_inference_steps': self.num_inference_steps,
+            'guidance_scale': self.guidance_scale,
+            'prompt_embeds': self.embeds[0],
+            'negative_prompt_embeds': self.embeds[1],
+            'pooled_prompt_embeds': self.embeds[2],
+            'negative_pooled_prompt_embeds': self.embeds[3]
+        }
+        
+        if self.use_image2image:
+            if self.image_init is None:
+                raise ValueError("Input image not set! Call set_input_image first.")
+            kwargs.update({
+                'image': self.image_init,
+                'strength': self.strength
+            })
+
+        if kwargs_override is not None:
+            for key, value in kwargs_override.items():
+                kwargs[key] = value
+        
+        return kwargs
+
+    
+    
+    def build_cross_attention_kwargs(self, kwargs, cross_attention_kwargs_override=None):
+        """
+        Builds the cross_attention_kwargs dictionary from the class attributes and any provided overrides.
+
+        Args:
+            kwargs (dict): The existing kwargs dictionary.
+            cross_attention_kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the cross_attention_kwargs.
+
+        Returns:
+            kwargs (dict): The updated kwargs dictionary with the cross_attention_kwargs included.
+
+        """
+        cross_attention_kwargs = {
+            'modulations': self.modulations
+        }
+        if cross_attention_kwargs_override is not None:
+            for key, value in cross_attention_kwargs_override.items():
+                cross_attention_kwargs[key] = value
+
+        if len(cross_attention_kwargs) > 0:
+            kwargs['cross_attention_kwargs'] = cross_attention_kwargs
+        return kwargs
+
+
+
+
+
+    def generate(self, kwargs_override=None, cross_attention_kwargs_override=None):
+        """
+        Generate an image using the current settings of the DiffusionEngine.
+
+        Args:
+            kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the DiffusionEngine.
+            cross_attention_kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the cross_attention_kwargs.
+
+        Returns:
+            img_diffusion (torch.Tensor): The generated image.
+
+        Raises:
+            AssertionError: If embeddings are not set.
+        """
+        assert self.embeds is not None, "Embeddings not set! Call set_embeddings first."
+        
+        torch.manual_seed(self.seed)
+
+        # First build the kwargs from the class attributes
+        kwargs = self.build_kwargs(kwargs_override)
+
+        # Then build the cross_attention_kwargs from the class attributes
+        kwargs = self.build_cross_attention_kwargs(kwargs, cross_attention_kwargs_override)
+        
+        if self.do_stereo_image:
+            img_diffusion = []                
+            for img_eye in self.image_init:
+                kwargs['image'] = img_eye
+                img_eye_diffusion = self.pipe(**kwargs).images[0]
+                img_diffusion.append(np.array(img_eye_diffusion))
+            img_diffusion = np.vstack(img_diffusion)
+        else:
+            img_diffusion = self.pipe(**kwargs).images[0]
     
         return img_diffusion
     
 
 
-
-if __name__ == "__main__experimental":
-    # import util
-
-    # from u_unet_modulated import forward_modulated
-    from embeddings_mixer import EmbeddingsMixer
-    # init latents
-    pb.w = de.width_latents
-    pb.h = de.height_latents
-    latents = pb.get_latents()
-    
-    # noise img2img
-    noise_img2img = torch.randn((1,4,de.height_latents,de.width_latents)).half().cuda() * 0
-    
-    # init embeds
-    embeds_mod_full = pb.get_prompt_embeds("big round bear")
-    embeds = {'prompt_embeds': embeds_mod_full[0],
-              'negative_prompt_embeds': embeds_mod_full[1],
-              'pooled_prompt_embeds': embeds_mod_full[2],
-              'negative_pooled_prompt_embeds': embeds_mod_full[3]}
-    
-    # image
-    import requests
-    from PIL import Image
-    from io import BytesIO
-    import numpy as np
-    
-    url = "https://cdn.britannica.com/79/232779-050-6B0411D7/German-Shepherd-dog-Alsatian.jpg"
-    response = requests.get(url)
-    img = Image.open(BytesIO(response.content))
-    
-    image_init = np.array(img)
-        
-    modulations = {}
-    modulations_noise = {}
-    for i in range(3):
-        modulations_noise[f'e{i}'] = util.get_noise_for_modulations(util.get_sample_shape_unet(f'e{i}', de.height_latents, de.width_latents), de.pipe_text2img)
-        modulations_noise[f'd{i}'] = util.get_noise_for_modulations(util.get_sample_shape_unet(f'd{i}', de.height_latents, de.width_latents), de.pipe_text2img)
-        
-    modulations_noise['b0'] = util.get_noise_for_modulations(util.get_sample_shape_unet('b0', de.height_latents, de.width_latents), de.pipe_text2img)
-    modulations['modulations_noise'] = modulations_noise
-        
-    cross_attention_kwargs ={}
-    cross_attention_kwargs['modulations'] = modulations        
-        
-    kwargs = {}
-    kwargs['guidance_scale'] = 0.0
-    kwargs['latents'] = latents
-    kwargs['prompt_embeds'] = embeds['prompt_embeds']
-    kwargs['negative_prompt_embeds'] = embeds['negative_prompt_embeds']
-    kwargs['pooled_prompt_embeds'] = embeds['pooled_prompt_embeds']
-    kwargs['negative_pooled_prompt_embeds'] = embeds['negative_pooled_prompt_embeds']
-    kwargs['strength'] = 0.5
-    kwargs['noise_img2img'] = noise_img2img
-    
-    if len(cross_attention_kwargs) > 0:
-        kwargs['cross_attention_kwargs'] = cross_attention_kwargs
-    
-    img_output = de.generate_image(kwargs)
-    
-    plt.imshow(np.array(img_output))
-    
-
-    
-if __name__ == '__main__':
-    de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=700, width_diffusion_desired=1024)
+if __name__ == '__main__KWARGS':
+    # Example for overriding kwargs
+    height_diffusion = 704
+    width_diffusion = 1024
+    de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion)
     em = EmbeddingsMixer(de_txt.pipe)
-    embeds = em.encode_prompt("photo of a house")
+    embeds = em.encode_prompt("photo of a new house")
     de_txt.set_embeddings(embeds)
-    img_init = de_txt.generate()
     
-    de_img = DiffusionEngine(use_image2image=True, height_diffusion_desired=512, width_diffusion_desired=512)
-    embeds = em.encode_prompt("blue painting of a house")
-    de_img.set_embeddings(embeds)
-    de_img.set_input_image(img_init)
-    de_img.generate()
+    renderer = lt.Renderer(width=width_diffusion, height=height_diffusion, backend='opencv', do_fullscreen=False)
+    midi_input = lt.MidiInput(device_name="akai_midimix")
     
+    while True:
+        num_inference_steps = int(midi_input.get("A0", val_min=1, val_max=5))
+        kwargs_override = {"num_inference_steps" : num_inference_steps}
+        img = de_txt.generate(kwargs_override=kwargs_override)
+        renderer.render(img)
+
+
+if __name__ == '__main__':
+    # Example for modifying decoder embeddings
+    height_diffusion = 512
+    width_diffusion = 512
+    de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion)
+    em = EmbeddingsMixer(de_txt.pipe)
+    
+    de_txt.set_num_inference_steps = 2
+    
+    midi_input = lt.MidiInput(device_name="akai_lpd8")
+    
+    xxx
+#%%    
+    main_prompt = "photo of a landscape"
+    list_decoder_embeds = [main_prompt,"autumn", "volcanic"]
+    
+    # main_prompt = "photo of a room with furniture"
+    # list_decoder_embeds = [main_prompt, "bohemian", "industrial"]
+    
+    # main_prompt = "portrait photo of a fashion model, long curly hair, blue dress"
+    # list_decoder_embeds = [main_prompt, "futuristic", "retro"]
+    
+    embeds = em.encode_prompt(main_prompt)
+    de_txt.set_embeddings(embeds)
+    
+    
+    em.encode_and_store_prompts(list_decoder_embeds)
+
+    renderer = lt.Renderer(width=width_diffusion, height=height_diffusion, backend='opencv', do_fullscreen=False)
+    
+    ms = lt.MovieSaver("decoder.mp4", fps=16, crf=28)
+    
+    while True:
+        list_weights = []
+        list_weights.append(midi_input.get("E0", val_min=0, val_max=1, val_default=0))
+        list_weights.append(midi_input.get("F0", val_min=0, val_max=1, val_default=0))
+        # list_weights.append(midi_input.get("G0", val_min=0, val_max=1, val_default=0))
+        # list_weights.append(midi_input.get("H0", val_min=0, val_max=1, val_default=0))
+        # list_weights.append(midi_input.get("E1", val_min=0, val_max=1, val_default=0))
+        # list_weights.append(midi_input.get("F1", val_min=0, val_max=1, val_default=0))
+        # list_weights.append(midi_input.get("G1", val_min=0, val_max=1, val_default=0))
+        # list_weights.append(midi_input.get("H1", val_min=0, val_max=1, val_default=0))
+        main_weights = 1 - np.sum(np.asarray(list_weights))
+        list_weights.insert(0, main_weights)
+        embeds_decoder_scaled = em.blend_stored_embeddings(list_weights)
+        de_txt.set_decoder_embeddings(embeds_decoder_scaled)
+        img = de_txt.generate()
+        renderer.render(img)
+        ms.write_frame(img)
+    ms.finalize()
+    
+    
+# if __name__ == '__main__X':
+#     # Example for multiple engines that exist at same time
+#     de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=700, width_diffusion_desired=1024)
+#     em = EmbeddingsMixer(de_txt.pipe)
+#     embeds = em.encode_prompt("photo of a house")
+#     de_txt.set_embeddings(embeds)
+#     img_init = de_txt.generate()
+    
+#     de_img = DiffusionEngine(use_image2image=True, height_diffusion_desired=512, width_diffusion_desired=512)
+#     embeds = em.encode_prompt("blue painting of a house")
+#     de_img.set_embeddings(embeds)
+#     de_img.set_input_image(img_init)
+#     img = de_img.generate()
+    
+    
+# if __name__ == '__main__HF':
+#     # Example for high frequency noise
+#     height_diffusion = 512
+#     width_diffusion = 512
+#     # first get the initial image... use text2image
+#     de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion)
+#     em = EmbeddingsMixer(de_txt.pipe)
+#     embeds = em.encode_prompt("photo of a house")
+#     de_txt.set_embeddings(embeds)
+#     img_init = de_txt.generate()
+    
+#     # second use image2image
+#     de_img = DiffusionEngine(use_image2image=True, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion)
+#     embeds = em.encode_prompt("blue painting of a house")
+#     de_img.set_embeddings(embeds)
+#     de_img.set_input_image(img_init)
+    
+#     renderer = lt.Renderer(width=width_diffusion, height=height_diffusion, backend='opencv', do_fullscreen=False)
+#     midi_input = lt.MidiInput(device_name="akai_lpd8")
+    
+#     while True:
+#         radius = midi_input.get("E0", val_min=2, val_max=90, val_default=50)
+#         de_img.set_dynamic_img2img_noise(radius)
+#         img = de_img.generate()
+#         renderer.render(img)
     
