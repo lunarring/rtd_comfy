@@ -1,6 +1,4 @@
-import sys
-sys.path.append("../psychoactive_surface")
-from embeddings_mixer import EmbeddingsMixer
+from ..sdxl_turbo.embeddings_mixer import EmbeddingsMixer
 import numpy as np
 
 class LREncodePrompt:

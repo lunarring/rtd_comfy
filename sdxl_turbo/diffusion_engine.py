@@ -1,4 +1,5 @@
 import numpy as np
+from .embeddings_mixer import EmbeddingsMixer
 from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image
 from diffusers.models import UNet2DConditionModel
 from diffusers import StableDiffusionXLImg2ImgPipeline
@@ -10,7 +11,6 @@ from torch.nn import functional as F
 import torch
 import torch.nn as nn
 import torch.utils.checkpoint
-from embeddings_mixer import EmbeddingsMixer
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import retrieve_latents
