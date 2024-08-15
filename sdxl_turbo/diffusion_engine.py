@@ -663,8 +663,7 @@ class DiffusionEngine():
         use_tinyautoenc = True,
         device = 'cuda',
         hf_model = 'stabilityai/sdxl-turbo',
-        do_compile = False, 
-        do_stereo_image = False, 
+        do_compile = False
     ):
         self._init_resolution(height_diffusion_desired, width_diffusion_desired)
         self.do_compile = do_compile
@@ -760,13 +759,6 @@ class DiffusionEngine():
         self.pipe = pipe
         self.set_latents()
 
-
-    def set_stereo_image(self, do_stereo_image=False):
-        """
-        This method sets a boolean flag that indicates whether the diffusion has to be applied to left/right stereo image coming from VR
-        """
-        self.do_stereo_image = do_stereo_image
-
     def set_latents(self, latents=None):
         """
         This method sets the latents for the pipeline. If no latents are provided, it generates new latents.
@@ -813,22 +805,9 @@ class DiffusionEngine():
                 image_init = image_init.astype(np.uint8)
             image_init = Image.fromarray(image_init)
         
-        if self.do_stereo_image:
-            # the left/right eye images are stacked vertically
-            sz = image_init.size
-            img_left_eye = image_init.crop((0, 0, sz[0], sz[1]//2))
-            img_right_eye = image_init.crop((0, sz[1]//2, sz[0], sz[1]))
-            
-            image_init = []
-            for img_eye in [img_left_eye, img_right_eye]:
-                width, height = img_eye.size
-                if height != self.height_diffusion or width != self.width_diffusion:
-                    img_eye = lt.resize(img_eye, size=(self.height_diffusion, self.width_diffusion))
-                image_init.append(img_eye)
-        else:
-            width, height = image_init.size
-            if height != self.height_diffusion or width != self.width_diffusion:
-                image_init = lt.resize(image_init, size=(self.height_diffusion, self.width_diffusion))
+        width, height = image_init.size
+        if height != self.height_diffusion or width != self.width_diffusion:
+            image_init = lt.resize(image_init, size=(self.height_diffusion, self.width_diffusion))
         self.image_init = image_init
 
     def set_embeddings(self, *args):
@@ -954,16 +933,89 @@ class DiffusionEngine():
             kwargs['cross_attention_kwargs'] = cross_attention_kwargs
         return kwargs
 
-
-
-
-
     def generate(self, kwargs_override=None, cross_attention_kwargs_override=None):
         """
         Generate an image using the current settings of the DiffusionEngine.
 
         Args:
             kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the DiffusionEngine.
+            cross_attention_kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the cross_attention_kwargs.
+
+        Returns:
+            img_diffusion (torch.Tensor): The generated image.
+
+        Raises:
+            AssertionError: If embeddings are not set.
+        """
+        assert self.embeds is not None, "Embeddings not set! Call set_embeddings first."
+        
+        torch.manual_seed(self.seed)
+
+        # First build the kwargs from the class attributes
+        kwargs = self.build_kwargs(kwargs_override)
+
+        # Then build the cross_attention_kwargs from the class attributes
+        kwargs = self.build_cross_attention_kwargs(kwargs, cross_attention_kwargs_override)
+        
+        img_diffusion = self.pipe(**kwargs).images[0]
+    
+        return img_diffusion
+    
+
+class StereoDiffusionEngine(DiffusionEngine):
+    """
+    The StereoDiffusionEngine class is a subclass of DiffusionEngine that handles stereo images.
+    It provides methods to set the stereo image flag, initialize the image for stereo processing, 
+    and generate images for both left and right eyes.
+
+    Attributes:
+        do_stereo_image (bool): A flag to determine whether to use stereo image processing.
+    """
+    
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def set_stereo_image(self, do_stereo_image=False):
+        """
+        This method sets a boolean flag that indicates whether the diffusion has to be applied to left/right stereo image coming from VR.
+        """
+        self.do_stereo_image = do_stereo_image
+
+    def set_input_image(self, image_init):
+        """
+        Sets the input image, resizing if necessary. If stereo image processing is enabled, it splits the image into left and right eye images.
+        """
+        if not isinstance(image_init, Image.Image):
+            if image_init.dtype != np.uint8:
+                image_init = np.round(image_init)
+                image_init = np.clip(image_init, 0, 255)
+                image_init = image_init.astype(np.uint8)
+            image_init = Image.fromarray(image_init)
+        
+        if self.do_stereo_image:
+            # the left/right eye images are stacked vertically
+            sz = image_init.size
+            img_left_eye = image_init.crop((0, 0, sz[0], sz[1]//2))
+            img_right_eye = image_init.crop((0, sz[1]//2, sz[0], sz[1]))
+            
+            image_init = []
+            for img_eye in [img_left_eye, img_right_eye]:
+                width, height = img_eye.size
+                if height != self.height_diffusion or width != self.width_diffusion:
+                    img_eye = lt.resize(img_eye, size=(self.height_diffusion, self.width_diffusion))
+                image_init.append(img_eye)
+        else:
+            width, height = image_init.size
+            if height != self.height_diffusion or width != self.width_diffusion:
+                image_init = lt.resize(image_init, size=(self.height_diffusion, self.width_diffusion))
+        self.image_init = image_init
+
+    def generate(self, kwargs_override=None, cross_attention_kwargs_override=None):
+        """
+        Generate an image using the current settings of the StereoDiffusionEngine.
+
+        Args:
+            kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the StereoDiffusionEngine.
             cross_attention_kwargs_override (dict, optional): A dictionary of arguments to override the current settings of the cross_attention_kwargs.
 
         Returns:
@@ -993,7 +1045,7 @@ class DiffusionEngine():
             img_diffusion = self.pipe(**kwargs).images[0]
     
         return img_diffusion
-    
+
 
 
 if __name__ == '__main__KWARGS':

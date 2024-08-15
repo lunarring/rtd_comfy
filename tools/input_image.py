@@ -206,6 +206,7 @@ class AcidProcessor():
         self.human_segmmask = None
         self.wobbler_control_kwargs = {}
         self.flip_state = 0
+        self.stereo_scaling_applied = False
 
     def set_wobbler_control_kwargs(self, wobbler_control_kwargs):
         self.wobbler_control_kwargs = wobbler_control_kwargs
@@ -245,9 +246,14 @@ class AcidProcessor():
 
     def set_flip_invariance(self, do_flip_invariance):
         self.do_flip_invariance = do_flip_invariance
+
+    def set_stereo_image(self, do_stereo_image=False):
+        if not self.stereo_scaling_applied:
+            self.height_diffusion = self.height_diffusion * 2
+            self.stereo_scaling_applied = True
     
     # @exception_handler
-    def process(self, image_input, do_stereo_image=False):
+    def process(self, image_input):
         if self.last_diffusion_image_torch is None:
             print("InputImageProcessor: last_diffusion_image_torch=None. returning original image...")
             return image_input
@@ -255,9 +261,6 @@ class AcidProcessor():
         last_diffusion_image_torch = self.last_diffusion_image_torch
         width_diffusion = self.width_diffusion
         height_diffusion = self.height_diffusion
-        
-        if do_stereo_image:
-            height_diffusion *= 2
         
         # acid transform
         # wobblers

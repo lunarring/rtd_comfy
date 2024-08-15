@@ -1,4 +1,4 @@
-from ..sdxl_turbo.diffusion_engine import DiffusionEngine
+from ..sdxl_turbo.diffusion_engine import DiffusionEngine, StereoDiffusionEngine
 import numpy as np
 from ..tools.input_image import AcidProcessor
 
@@ -46,11 +46,13 @@ class LRDiffusionEngineLoader:
                 }
         }
 
-    def load(self, height_diffusion, width_diffusion, do_compile, img2img, do_stereo_image=None):
-        de = DiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile)
-        
-        if do_stereo_image is not None:
-            de.set_stereo_image(do_stereo_image)
+    def load(self, height_diffusion, width_diffusion, do_compile, img2img, do_stereo_image=False):
+        if not do_stereo_image:
+            de = DiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile)
+        else:
+            de = StereoDiffusionEngine(use_image2image=img2img, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion, do_compile=do_compile)
+            if do_stereo_image is not None:
+                de.set_stereo_image(do_stereo_image)
         
         return ([de])
     
@@ -196,7 +198,9 @@ class LRDiffusionEngineAcid:
             self.ap.set_flip_invariance(do_flip_invariance)
             
         if input_image is not None:
-            input_image = self.ap.process(input_image, do_stereo_image=diffusion_engine.do_stereo_image)
+            if hasattr(diffusion_engine, 'do_stereo_image') and diffusion_engine.do_stereo_image:
+                self.ap.set_stereo_image(True)
+            input_image = self.ap.process(input_image)
 
         # Process DiffusionEngine
         diffusion_engine.set_embeddings(embeds)
