@@ -1,7 +1,8 @@
-diffusers==0.26.3
+git+https://github.com/lunarring/lunar_tools
+diffusers
 lpips==0.1.4
-matplotlib==3.8.3
+matplotlib
 numpy
-Pillow==10.4.0
-torch==2.2.0
-torchvision==0.17.0
+Pillow
+torch
+torchvision
