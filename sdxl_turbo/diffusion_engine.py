@@ -16,37 +16,36 @@ from typing import Any, Dict, List, Optional, Tuple, Union
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import retrieve_latents
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
-from diffusers.loaders import PeftAdapterMixin, UNet2DConditionLoadersMixin
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, logging, scale_lora_layers, unscale_lora_layers
-from diffusers.models.activations import get_activation
-from diffusers.models.attention_processor import (
-    ADDED_KV_ATTENTION_PROCESSORS,
-    CROSS_ATTENTION_PROCESSORS,
-    Attention,
-    AttentionProcessor,
-    AttnAddedKVProcessor,
-    AttnProcessor,
-)
-from diffusers.models.embeddings import (
-    GaussianFourierProjection,
-    GLIGENTextBoundingboxProjection,
-    ImageHintTimeEmbedding,
-    ImageProjection,
-    ImageTimeEmbedding,
-    TextImageProjection,
-    TextImageTimeEmbedding,
-    TextTimeEmbedding,
-    TimestepEmbedding,
-    Timesteps,
-)
-from diffusers.models.modeling_utils import ModelMixin
-from diffusers.models.unet_2d_blocks import (
-    UNetMidBlock2D,
-    UNetMidBlock2DCrossAttn,
-    UNetMidBlock2DSimpleCrossAttn,
-    get_down_block,
-    get_up_block,
-)
+# from diffusers.models.activations import get_activation
+# from diffusers.models.attention_processor import (
+#     ADDED_KV_ATTENTION_PROCESSORS,
+#     CROSS_ATTENTION_PROCESSORS,
+#     Attention,
+#     AttentionProcessor,
+#     AttnAddedKVProcessor,
+#     AttnProcessor,
+# )
+# from diffusers.models.embeddings import (
+#     GaussianFourierProjection,
+#     GLIGENTextBoundingboxProjection,
+#     ImageHintTimeEmbedding,
+#     ImageProjection,
+#     ImageTimeEmbedding,
+#     TextImageProjection,
+#     TextImageTimeEmbedding,
+#     TextTimeEmbedding,
+#     TimestepEmbedding,
+#     Timesteps,
+# )
+# from diffusers.models.modeling_utils import ModelMixin
+# from diffusers.models.unet_2d_blocks import (
+#     UNetMidBlock2D,
+#     UNetMidBlock2DCrossAttn,
+#     UNetMidBlock2DSimpleCrossAttn,
+#     get_down_block,
+#     get_up_block,
+# )
 
 def torch_resample(tex, grid,padding_mode="reflection", mode='bilinear'):
     if len(tex.shape) == 3:                        # add singleton to batch dim
