@@ -1,5 +1,5 @@
 git+https://github.com/lunarring/lunar_tools
-diffusers
+diffusers==0.27
 lpips==0.1.4
 matplotlib
 numpy
