@@ -9,41 +9,45 @@ from lunar_tools import exception_handler
 import lunar_tools as lt
 
 
-@exception_handler
 def zoom_image_torch(input_tensor, zoom_factor):
-    # Ensure the input is a 4D tensor [batch_size, channels, height, width]
-    input_tensor = input_tensor.permute(2,0,1)
-    if len(input_tensor.shape) == 3:
-        input_tensor = input_tensor.unsqueeze(0)
-    
-    # Original size
-    original_height, original_width = input_tensor.shape[2], input_tensor.shape[3]
-    
-    # Calculate new size
-    new_height = int(original_height * zoom_factor)
-    new_width = int(original_width * zoom_factor)
-    
-    # Interpolate
-    zoomed_tensor = F.interpolate(input_tensor, size=(new_height, new_width), mode='bilinear', align_corners=False)
+    try:
+        # Ensure the input is a 4D tensor [batch_size, channels, height, width]
+        input_tensor = input_tensor.permute(2,0,1)
+        if len(input_tensor.shape) == 3:
+            input_tensor = input_tensor.unsqueeze(0)
+        
+        # Original size
+        original_height, original_width = input_tensor.shape[2], input_tensor.shape[3]
+        
+        # Calculate new size
+        new_height = int(original_height * zoom_factor)
+        new_width = int(original_width * zoom_factor)
+        
+        # Interpolate
+        zoomed_tensor = F.interpolate(input_tensor, size=(new_height, new_width), mode='bilinear', align_corners=False)
 
-    # Calculate padding to match original size
-    pad_height = (original_height - new_height) // 2
-    pad_width = (original_width - new_width) // 2
-    
-    # Adjust for even dimensions to avoid negative padding
-    pad_height_extra = original_height - new_height - 2*pad_height
-    pad_width_extra = original_width - new_width - 2*pad_width
-    
-    # Pad to original size
-    if zoom_factor < 1:
-        zoomed_tensor = F.pad(zoomed_tensor, (pad_width, pad_width + pad_width_extra, pad_height, pad_height + pad_height_extra), 'reflect', 0)
-    else:
-        # For zoom_factor > 1, center crop to original dimensions
-        start_row = (zoomed_tensor.shape[2] - original_height) // 2
-        start_col = (zoomed_tensor.shape[3] - original_width) // 2
-        zoomed_tensor = zoomed_tensor[:, :, start_row:start_row + original_height, start_col:start_col + original_width]
-    
-    return zoomed_tensor.squeeze(0).permute(1,2,0)  # Remove batch dimension before returning
+        # Calculate padding to match original size
+        pad_height = (original_height - new_height) // 2
+        pad_width = (original_width - new_width) // 2
+        
+        # Adjust for even dimensions to avoid negative padding
+        pad_height_extra = original_height - new_height - 2*pad_height
+        pad_width_extra = original_width - new_width - 2*pad_width
+        
+        # Pad to original size
+        if zoom_factor < 1:
+            zoomed_tensor = F.pad(zoomed_tensor, (pad_width, pad_width + pad_width_extra, pad_height, pad_height + pad_height_extra), 'reflect', 0)
+        else:
+            # For zoom_factor > 1, center crop to original dimensions
+            start_row = (zoomed_tensor.shape[2] - original_height) // 2
+            start_col = (zoomed_tensor.shape[3] - original_width) // 2
+            zoomed_tensor = zoomed_tensor[:, :, start_row:start_row + original_height, start_col:start_col + original_width]
+        
+        return zoomed_tensor.squeeze(0).permute(1,2,0)  # Remove batch dimension before returning
+    except Exception as e:
+        print(f"zoom_image_torch failed! {e}. returning original input")
+        return input_tensor
+
 
 # grid resampler
 def torch_resample(tex, grid,padding_mode="reflection", mode='bilinear'):
