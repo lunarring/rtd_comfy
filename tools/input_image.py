@@ -126,7 +126,11 @@ class InputImageProcessor():
         
     # @exception_handler
     def process(self, img):
-        assert isinstance(img, np.ndarray), "img should be a numpy array"
+
+        if isinstance(img, torch.Tensor):
+            img = img.squeeze(0)
+            img = img.cpu().numpy()
+            img = np.asarray(255*img, dtype=np.uint8)
 
         if self.flip_axis is not None:
             img = np.flip(img, axis=self.flip_axis)
@@ -258,6 +262,10 @@ class AcidProcessor():
     
     # @exception_handler
     def process(self, image_input):
+        if isinstance(image_input, torch.Tensor):
+            image_input = image_input.squeeze(0)
+            image_input = image_input.cpu().numpy()
+            image_input = np.asarray(255*image_input, dtype=np.uint8)
         if self.last_diffusion_image_torch is None:
             print("InputImageProcessor: last_diffusion_image_torch=None. returning original image...")
             return image_input
