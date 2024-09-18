@@ -711,6 +711,7 @@ class DiffusionEngine():
             pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False)
         self.num_inference_steps = 2
         self._init_pipe(pipe)
+        self.init_input_image_noise()
 
     def _init_text2image(self):
         """
@@ -794,6 +795,11 @@ class DiffusionEngine():
         """Sets the strength, ensuring it's greater than 1/num_inference_steps."""
         # assert strength > 1/self.num_inference_steps, "Increase strength!"
         self.strength = float(strength)
+
+    def init_input_image_noise(self):
+        noise_image = np.random.randn(self.height_diffusion, self.width_diffusion, 3)
+        noise_image = ((noise_image - noise_image.min()) / (noise_image.max() - noise_image.min()) * 255).astype(np.uint8)
+        self.set_input_image(noise_image)
 
     def set_input_image(self, image_init):
         """Sets the input image, resizing if necessary."""
@@ -894,8 +900,8 @@ class DiffusionEngine():
         }
         
         if self.use_image2image:
-            if self.image_init is None:
-                raise ValueError("Input image not set! Call set_input_image first.")
+            # if self.image_init is None:
+                # raise ValueError("Input image not set! Call set_input_image first.")
             kwargs.update({
                 'image': self.image_init,
                 'strength': self.strength
@@ -957,7 +963,7 @@ class DiffusionEngine():
         kwargs = self.build_cross_attention_kwargs(kwargs, cross_attention_kwargs_override)
         
         img_diffusion = self.pipe(**kwargs).images[0]
-    
+   
         return img_diffusion
     
 
