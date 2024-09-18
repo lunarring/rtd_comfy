@@ -64,6 +64,10 @@ class LRDiffusionEngineAcid:
         self.ap = None
         self.last_diffusion_image = None
 
+    @classmethod 
+    def IS_CHANGED(cls, **inputs):
+        return float("NaN")
+
     @classmethod
     def INPUT_TYPES(cls):
         return {
