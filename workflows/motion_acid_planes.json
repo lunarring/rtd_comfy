@@ -1,0 +1,794 @@
+{
+  "last_node_id": 21,
+  "last_link_id": 35,
+  "nodes": [
+    {
+      "id": 8,
+      "type": "LR MotiveReceiver",
+      "pos": {
+        "0": 132,
+        "1": 3258
+      },
+      "size": {
+        "0": 315,
+        "1": 82
+      },
+      "flags": {},
+      "order": 0,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "motive_receiver",
+          "type": "MOTION_RECEIVER",
+          "links": [
+            14
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR MotiveReceiver"
+      },
+      "widgets_values": [
+        "10.40.49.21",
+        "10.40.50.9"
+      ]
+    },
+    {
+      "id": 14,
+      "type": "LR RigidBody",
+      "pos": {
+        "0": 657.0283813476562,
+        "1": 3257.5556640625
+      },
+      "size": {
+        "0": 367.79998779296875,
+        "1": 118
+      },
+      "flags": {},
+      "order": 4,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "motive_receiver",
+          "type": "MOTION_RECEIVER",
+          "link": 14
+        }
+      ],
+      "outputs": [
+        {
+          "name": "rigid_body",
+          "type": "RIGID_BODY",
+          "links": [
+            15
+          ],
+          "slot_index": 0,
+          "shape": 3
+        },
+        {
+          "name": "last_position",
+          "type": "ARRAY",
+          "links": [],
+          "slot_index": 1,
+          "shape": 3
+        },
+        {
+          "name": "last_velocity",
+          "type": "ARRAY",
+          "links": [
+            25
+          ],
+          "slot_index": 2,
+          "shape": 3
+        },
+        {
+          "name": "last_orientation",
+          "type": "ARRAY",
+          "links": null,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR RigidBody"
+      },
+      "widgets_values": [
+        "A"
+      ]
+    },
+    {
+      "id": 15,
+      "type": "LR SplitArray",
+      "pos": {
+        "0": 1216,
+        "1": 3494
+      },
+      "size": {
+        "0": 210,
+        "1": 86
+      },
+      "flags": {},
+      "order": 8,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "array",
+          "type": "ARRAY",
+          "link": 25
+        }
+      ],
+      "outputs": [
+        {
+          "name": "element_1",
+          "type": "FLOAT",
+          "links": [
+            22
+          ],
+          "slot_index": 0,
+          "shape": 3
+        },
+        {
+          "name": "element_2",
+          "type": "FLOAT",
+          "links": null,
+          "shape": 3
+        },
+        {
+          "name": "element_3",
+          "type": "FLOAT",
+          "links": null,
+          "shape": 3
+        },
+        {
+          "name": "element_4",
+          "type": "FLOAT",
+          "links": null,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR SplitArray"
+      }
+    },
+    {
+      "id": 17,
+      "type": "LR DrawBufferImage",
+      "pos": {
+        "0": 1680,
+        "1": 3315
+      },
+      "size": {
+        "0": 315,
+        "1": 178
+      },
+      "flags": {},
+      "order": 10,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "input_value",
+          "type": "FLOAT",
+          "link": 22,
+          "widget": {
+            "name": "input_value"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "buffer_image",
+          "type": "IMAGE",
+          "links": [],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR DrawBufferImage"
+      },
+      "widgets_values": [
+        0,
+        300,
+        200,
+        false,
+        0,
+        1
+      ]
+    },
+    {
+      "id": 4,
+      "type": "LR InputImageProcessor",
+      "pos": {
+        "0": 524,
+        "1": 2893
+      },
+      "size": {
+        "0": 367.79998779296875,
+        "1": 270
+      },
+      "flags": {},
+      "order": 5,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 2
+        }
+      ],
+      "outputs": [
+        {
+          "name": "processed image",
+          "type": "IMAGE",
+          "links": [
+            3
+          ],
+          "slot_index": 0,
+          "shape": 3
+        },
+        {
+          "name": "human segmentation mask",
+          "type": "IMAGE",
+          "links": null,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR InputImageProcessor"
+      },
+      "widgets_values": [
+        1,
+        1,
+        0,
+        3,
+        false,
+        false,
+        false,
+        -1,
+        0.4
+      ]
+    },
+    {
+      "id": 3,
+      "type": "LR WebCam",
+      "pos": {
+        "0": 118,
+        "1": 2931
+      },
+      "size": {
+        "0": 315,
+        "1": 106
+      },
+      "flags": {},
+      "order": 1,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "Webcam Image",
+          "type": "IMAGE",
+          "links": [
+            2
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR WebCam"
+      },
+      "widgets_values": [
+        0,
+        576,
+        1024
+      ]
+    },
+    {
+      "id": 5,
+      "type": "LR EncodePrompt",
+      "pos": {
+        "0": 1039,
+        "1": 2738
+      },
+      "size": {
+        "0": 315,
+        "1": 58
+      },
+      "flags": {},
+      "order": 9,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "diffusion_engine",
+          "type": "MODEL",
+          "link": 4
+        },
+        {
+          "name": "prompt",
+          "type": "STRING",
+          "link": 29,
+          "widget": {
+            "name": "prompt"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "embeds",
+          "type": "CONDITIONING",
+          "links": [
+            5
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR EncodePrompt"
+      },
+      "widgets_values": [
+        "strange underwater world"
+      ]
+    },
+    {
+      "id": 6,
+      "type": "LR RenderWindow",
+      "pos": {
+        "0": 2192.246826171875,
+        "1": 2808.652099609375
+      },
+      "size": {
+        "0": 315,
+        "1": 130
+      },
+      "flags": {},
+      "order": 12,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "link": 27
+        }
+      ],
+      "outputs": [],
+      "properties": {
+        "Node name for S&R": "LR RenderWindow"
+      },
+      "widgets_values": [
+        1024,
+        2048,
+        "lunar_render_window",
+        true
+      ]
+    },
+    {
+      "id": 2,
+      "type": "LR DiffusionEngineLoader",
+      "pos": {
+        "0": 651,
+        "1": 2606
+      },
+      "size": {
+        "0": 315,
+        "1": 154
+      },
+      "flags": {},
+      "order": 2,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "diffusion_engine",
+          "type": "MODEL",
+          "links": [
+            1,
+            4
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR DiffusionEngineLoader"
+      },
+      "widgets_values": [
+        512,
+        850,
+        false,
+        true,
+        false
+      ]
+    },
+    {
+      "id": 19,
+      "type": "LR JsonPromptScheduler",
+      "pos": {
+        "0": 781,
+        "1": 2356
+      },
+      "size": {
+        "0": 393,
+        "1": 82
+      },
+      "flags": {},
+      "order": 6,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "json_prompt_data",
+          "type": "DICT",
+          "link": 28
+        }
+      ],
+      "outputs": [
+        {
+          "name": "Current Prompt",
+          "type": "STRING",
+          "links": [
+            29
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR JsonPromptScheduler"
+      },
+      "widgets_values": [
+        3,
+        false
+      ]
+    },
+    {
+      "id": 1,
+      "type": "LR DiffusionEngineAcid",
+      "pos": {
+        "0": 1657,
+        "1": 2731
+      },
+      "size": {
+        "0": 367.79998779296875,
+        "1": 398
+      },
+      "flags": {},
+      "order": 11,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "diffusion_engine",
+          "type": "MODEL",
+          "link": 1
+        },
+        {
+          "name": "embeds",
+          "type": "CONDITIONING",
+          "link": 5
+        },
+        {
+          "name": "input_image",
+          "type": "IMAGE",
+          "link": 3
+        },
+        {
+          "name": "latents",
+          "type": "LATENTS",
+          "link": null
+        },
+        {
+          "name": "decoder_embeds",
+          "type": "CONDITIONING",
+          "link": null
+        },
+        {
+          "name": "human_segmentation_mask",
+          "type": "IMAGE",
+          "link": null
+        },
+        {
+          "name": "x_shift",
+          "type": "FLOAT",
+          "link": 34,
+          "widget": {
+            "name": "x_shift"
+          }
+        },
+        {
+          "name": "y_shift",
+          "type": "FLOAT",
+          "link": 35,
+          "widget": {
+            "name": "y_shift"
+          }
+        },
+        {
+          "name": "zoom_factor",
+          "type": "FLOAT",
+          "link": 18,
+          "widget": {
+            "name": "zoom_factor"
+          }
+        },
+        {
+          "name": "rotation_angle",
+          "type": "FLOAT",
+          "link": 19,
+          "widget": {
+            "name": "rotation_angle"
+          }
+        }
+      ],
+      "outputs": [
+        {
+          "name": "image",
+          "type": "IMAGE",
+          "links": [
+            27
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR DiffusionEngineAcid"
+      },
+      "widgets_values": [
+        2,
+        1,
+        0.01,
+        0.15,
+        0,
+        0,
+        1,
+        0,
+        false,
+        false,
+        false
+      ]
+    },
+    {
+      "id": 12,
+      "type": "LR MotionAcidPlanes",
+      "pos": {
+        "0": 1201,
+        "1": 3223
+      },
+      "size": {
+        "0": 317.4000244140625,
+        "1": 166
+      },
+      "flags": {},
+      "order": 7,
+      "mode": 0,
+      "inputs": [
+        {
+          "name": "rigid_body",
+          "type": "RIGID_BODY",
+          "link": 15
+        }
+      ],
+      "outputs": [
+        {
+          "name": "x_shift",
+          "type": "FLOAT",
+          "links": [
+            34
+          ],
+          "slot_index": 0,
+          "shape": 3
+        },
+        {
+          "name": "y_shift",
+          "type": "FLOAT",
+          "links": [
+            35
+          ],
+          "slot_index": 1,
+          "shape": 3
+        },
+        {
+          "name": "zoom_factor",
+          "type": "FLOAT",
+          "links": [
+            18
+          ],
+          "slot_index": 2,
+          "shape": 3
+        },
+        {
+          "name": "rotation_angle",
+          "type": "FLOAT",
+          "links": [
+            19
+          ],
+          "slot_index": 3,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR MotionAcidPlanes"
+      },
+      "widgets_values": [
+        150,
+        50,
+        0.30000000000000004
+      ]
+    },
+    {
+      "id": 18,
+      "type": "LR MultiPrompt",
+      "pos": {
+        "0": 294,
+        "1": 2344
+      },
+      "size": {
+        "0": 400,
+        "1": 200
+      },
+      "flags": {},
+      "order": 3,
+      "mode": 0,
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "json_prompt_data",
+          "type": "DICT",
+          "links": [
+            28
+          ],
+          "slot_index": 0,
+          "shape": 3
+        }
+      ],
+      "properties": {
+        "Node name for S&R": "LR MultiPrompt"
+      },
+      "widgets_values": [
+        "macro photo biology high resolution organic cell, incredible detailelectron microscope colorful photo biology high resolution organic mitochondria\nImmersive macro photograph biological high resolution DNA molecule, impressive sharpness.\nScanning electron microscopic view pristine 4K resolution human red blood cell, remarkable clarity.\nMicroscopic landscape, highest resolution biological neuron connections, amazing intricate detail.\nVibrant electron microscopic view, ultra high resolution organic cell nucleus, phenomenal accuracy.\nHigh quality microscopic imagery, human cell division process, breathtaking accuracy.\nCaptivating electron microscope snapshot vibrant ultra-high resolution biological molecules, awe-inspiring precision.\nMacro photographic journey into cellular anatomy, 4K resolution, strikingly detailed.\nHighly detailed microscopic view, high resolution capture of viral cell, striking precision.\nmicroscopic photo abstract high resolution organic cell neurons, incredible detail\nmicroscopic structure, ultra high detail, atoms, surface, quantum\nmacro photography, crystalline structures, high-definition mineral details, atom precision\nspace telescope captures, galactic phenomena, star clusters, nebulae, deep space detail\nradiation imaging, molecular structure, nuclear medicine, high definition cellular level\nDetailed genetic sequencing, DNA helix structure, high precision bioinformatics, molecular biology\nUltra high-definition microscopic examination, complex protein structures, meticulous detailing.\nRemarkable nanoscopic image, cellular mitochondria in full resolution, breath-taking vividness.\nIncredibly precise magnified imagery, human chromosome structure, astonishingly clear.\nImmersive 3D rendition, high-resolution atom structures, exquisitely detailed.\nCutting edge cellular exploration, detailed neuron synapses, high resolution, impressive precision.\nNano scale exploration, electron microscope view of virus particles, remarkable detailing.\nIn-depth microscopy, high-resolution gene chromosomes, awe-inspiring accuracy.\nFull-scale 3D model of cellular organelles, strikingly detailed, high resolution.\nExceptional electron microscopy, in-depth view of nanobots in human bloodstream.\nAstoundingly rich molecular photography, high resolution nucleic acids, breathtaking precision.\nCrystalline precision, detailed examination of salt crystals under extreme magnification, mesmerizing complexity.\nIncredible space snapshots, deepest corner of Milky Way, high resolution stellar nurseries, vivid scales.\nIntricate biological photography, high resolution visualization of cellular golgi apparatus, astonishing clarity.\nCosmic beauty, vibrant interstellar clouds in magnificent color, lensed by orbiting observatory, incredible detail.\nVisionary biomolecular imaging, HD visual of proteins interaction, beyond comprehension detailing.\nAstrophysical wonder, colorful nebulas and star birth, space telescope imagery, awe-striking clarity.\nDetailed exploration of the micro world, bacteriophage virus attaches to an E.coli cell, astonishing precision.\nMicroscopic wonder, high-resolution image of intricate cytoskeleton structure, awe-inspiring accuracy.\nStellar remnants, vibrant pulsars and neutron stars, captured by ultra-sensitive space observatories, cosmic marvel in high-resolution.\nCutting-edge nanotech imagery, nanobots interacting with red blood cells, extreme microscopic accuracy.\nVirus particle imagery, crystal clear detail of tiny invaders, surprisingly vibrant for the microscopic world.\nGalactic vista, spiral arm formations, an explosion of color and light in unprecedented detail.\nMicrograph of fungal spores, invisible to the naked eye, yet rich in texture and shape, delicate precision.\nDelve into a pollen grain's elaborate architecture, unseen realms of the microscopic world.\nDelicate spirals of human DNA, the building blocks of life, unraveled in striking high resolution.\nMicroscopic view of mitochondria within a human cell, bio-engineering wonder in the smallest of spaces.\nTrekked through the spiral galaxies, ultra high-definition electron microscopic insight showing genetic information stored in DNA. \nUnfolding the vast cosmic beauty, scanning electron microscope detailing mitosis of a single animal cell.\nExploration of black hole event horizons, tunneling into the complex architecture of amino acids under high-powered resolution.\nDive into the infinity of the universe, electron microscopic close-ups displaying molecular structures of star material. \nEnter the nebulous realms of distant gas clouds, studying the microworld of stardust particles under electron magnification.\nStellar evolution observed in the sprawling cosmos, juxtaposed by in-depth views of protein chains transforming through a powerful microscope.\nJourney into the heart of a supernova, detailed imagery of high-resolution scanning electron microscope exploring the microcosmos of subatomic particles.\nAlien planets in quantum realms, revealing invisible atomic structures through extreme microscopic resolution.\nMacroscopic extraterrestrial landscapes intertwined with microscopic life forms under incredible electron magnification.\ntour of nebulas' breathtaking colors matched by intricate neuron connections in 4k resolution via electron microscope.\nComet's journey through our solar system paralleled with an advanced microscopic take on bacterial cell division.\nThe Hubble telescope delivers jaw-dropping images of distant galaxies while electron microscopy presents haunting images of microbial life.\n"
+      ]
+    }
+  ],
+  "links": [
+    [
+      1,
+      2,
+      0,
+      1,
+      0,
+      "MODEL"
+    ],
+    [
+      2,
+      3,
+      0,
+      4,
+      0,
+      "IMAGE"
+    ],
+    [
+      3,
+      4,
+      0,
+      1,
+      2,
+      "IMAGE"
+    ],
+    [
+      4,
+      2,
+      0,
+      5,
+      0,
+      "MODEL"
+    ],
+    [
+      5,
+      5,
+      0,
+      1,
+      1,
+      "CONDITIONING"
+    ],
+    [
+      14,
+      8,
+      0,
+      14,
+      0,
+      "MOTION_RECEIVER"
+    ],
+    [
+      15,
+      14,
+      0,
+      12,
+      0,
+      "RIGID_BODY"
+    ],
+    [
+      18,
+      12,
+      2,
+      1,
+      8,
+      "FLOAT"
+    ],
+    [
+      19,
+      12,
+      3,
+      1,
+      9,
+      "FLOAT"
+    ],
+    [
+      22,
+      15,
+      0,
+      17,
+      0,
+      "FLOAT"
+    ],
+    [
+      25,
+      14,
+      2,
+      15,
+      0,
+      "ARRAY"
+    ],
+    [
+      27,
+      1,
+      0,
+      6,
+      0,
+      "IMAGE"
+    ],
+    [
+      28,
+      18,
+      0,
+      19,
+      0,
+      "DICT"
+    ],
+    [
+      29,
+      19,
+      0,
+      5,
+      1,
+      "STRING"
+    ],
+    [
+      34,
+      12,
+      0,
+      1,
+      6,
+      "FLOAT"
+    ],
+    [
+      35,
+      12,
+      1,
+      1,
+      7,
+      "FLOAT"
+    ]
+  ],
+  "groups": [],
+  "config": {},
+  "extra": {
+    "ds": {
+      "scale": 0.8954302432552589,
+      "offset": [
+        105.32194520136314,
+        -2057.7037743403107
+      ]
+    }
+  },
+  "version": 0.4
+}
