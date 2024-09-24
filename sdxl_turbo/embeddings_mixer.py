@@ -141,7 +141,8 @@ class EmbeddingsMixer:
         assert len(list_embeds) == len(weights), "The length of list_embeds and weights must be the same"
 
         embeds_mixed = []
-        for i in range(4):
+        nmb_dim = len(list_embeds[0])
+        for i in range(nmb_dim):
             for j in range(len(weights)):
                 if j==0:
                     emb = list_embeds[j][i] * weights[j]
