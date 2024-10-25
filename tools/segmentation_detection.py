@@ -1,15 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-import torch
-import numpy as np
-from PIL import Image
-from torchvision import transforms
-import torchvision
-import time
-import lunar_tools as lt
+from comfy.segmentation_detection import HumanSegNode
 
-class HumanSeg():
+class HumanSeg:
     """
     This class is used for human segmentation in images. It uses a pre-trained model from PyTorch's model zoo 
     (deeplabv3_resnet101 by default) to predict the human body in the image and generate a mask. The mask can be 
