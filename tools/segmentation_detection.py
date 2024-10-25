@@ -1,7 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-from comfy.segmentation_detection import HumanSegNode
+import torch
+import numpy as np
+from PIL import Image
+from torchvision import transforms
+import torchvision
+import time
+import lunar_tools as lt
 
 class HumanSeg:
     """
