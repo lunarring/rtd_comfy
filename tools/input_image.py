@@ -4,7 +4,7 @@ import numpy as np
 import torch.nn.functional as F
 from torchvision import transforms
 from .wobblers import WobbleMan
-from .human_seg import HumanSeg
+from .segmentation_detection import HumanSeg
 from lunar_tools import exception_handler
 import lunar_tools as lt
 
