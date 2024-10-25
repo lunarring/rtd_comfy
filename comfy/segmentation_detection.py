@@ -10,9 +10,10 @@ class HumanSegNode:
     def __init__(self):
         self.human_seg = None
 
-    def initialize_once(self, model_name='deeplabv3_resnet101', resizing_factor=None, size=None):
+    def initialize_once(self, model=None, resizing_factor=None, size=None):
+        model = model or 'deeplabv3_resnet101'
         if self.human_seg is None:
-            self.human_seg = HumanSeg(model_name=model_name, resizing_factor=resizing_factor, size=size)
+            self.human_seg = HumanSeg(model_name=model, resizing_factor=resizing_factor, size=size)
             print("Initialized HumanSegNode")
 
     @classmethod
@@ -26,7 +27,8 @@ class HumanSegNode:
             }
         }
 
-    def get_mask(self, input_img, model_name='deeplabv3_resnet101', resizing_factor=None, size=None):
-        self.initialize_once(model_name, resizing_factor, size)
+    def get_mask(self, input_img, model=None, resizing_factor=None, size=None):
+        model = model or 'deeplabv3_resnet101'
+        self.initialize_once(model, resizing_factor, size)
         mask = self.human_seg.get_mask(input_img)
         return (mask,)
