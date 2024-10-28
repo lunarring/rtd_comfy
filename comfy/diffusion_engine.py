@@ -205,6 +205,9 @@ class LRDiffusionEngineAcid:
             if hasattr(diffusion_engine, 'do_stereo_image') and diffusion_engine.do_stereo_image:
                 self.ap.set_stereo_image(True)
             input_image = self.ap.process(input_image)
+        else: # if no input image is provided, we take the first noise init_image that was automatically generated.
+            input_image = self.ap.process(np.array(diffusion_engine.image_init))
+
 
         # Process DiffusionEngine
         diffusion_engine.set_embeddings(embeds)
