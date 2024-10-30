@@ -1,6 +1,9 @@
 from ..sdxl_turbo.diffusion_engine import DiffusionEngine, StereoDiffusionEngine
 import numpy as np
 from ..tools.input_image import AcidProcessor, tensor2image
+import threading
+import time
+from PIL import Image  
 
 class LRDiffusionEngineLoader:
     RETURN_TYPES = ("MODEL", )  
@@ -237,6 +240,107 @@ class LRDiffusionEngineAcid:
         # print(f"diff size is: {img.shape}")
         img = [img]
         return img
+
+
+
+class LRDiffusionEngineThreaded:
+    DEFAULT_NUM_INFERENCE_STEPS = 2
+
+    def __init__(self):
+        self.diffusion_engine = None
+        self.do_run = False
+        self.num_inference_steps = self.DEFAULT_NUM_INFERENCE_STEPS
+        self.embeds = None
+        self.input_image = None
+        self.latents = None
+        self.decoder_embeds = None
+        self.last_diffusion_img = Image.new("RGB", (512, 512))  # Initialize an empty PIL image with dimensions 512x512
+
+    @classmethod 
+    def IS_CHANGED(cls, **inputs):
+        return float("NaN")
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "diffusion_engine": ("MODEL", {}),
+                "embeds": ("CONDITIONING", {}),
+                },
+            "optional": {
+                "input_image": ("IMAGE", {}),
+                "latents": ("LATENTS", {}),
+                "decoder_embeds": ("CONDITIONING", {}),
+                "num_inference_steps": ("FLOAT", {
+                    "default": cls.DEFAULT_NUM_INFERENCE_STEPS, 
+                    "min": 1,
+                    "max": 50,
+                    "step": 1,
+                    "display": "number"
+                }),
+                "do_run": ("BOOLEAN", {"default": True}),  # Added boolean input for do_run
+            },
+        }
+
+    RETURN_TYPES = ("IMAGE", )  
+    RETURN_NAMES = ("image", )  
+    FUNCTION = "generate"
+    OUTPUT_NODE = False
+    CATEGORY = "LunarRing/visual"
+
+    def _run_generation(self):
+        while True:
+            if not self.do_run:
+                time.sleep(0.05)
+                continue
+            # print("starting _run_generation")
+            if self.input_image is not None:
+                input_image = self.input_image
+                input_image = tensor2image(input_image)
+            else:  # if no input image is provided, we take the first noise init_image that was automatically generated.
+                input_image = np.array(self.diffusion_engine.image_init)
+
+            # Process DiffusionEngine
+            self.diffusion_engine.set_embeddings(self.embeds)
+            if input_image is not None:
+                self.diffusion_engine.set_input_image(input_image)
+            if self.latents is not None:
+                self.diffusion_engine.latents(self.latents)
+            if self.decoder_embeds is not None:
+                self.diffusion_engine.set_decoder_embeddings(self.decoder_embeds)
+            if self.num_inference_steps is not None:
+                self.diffusion_engine.set_num_inference_steps(int(self.num_inference_steps))
+            img = np.asarray(self.diffusion_engine.generate())
+            self.last_diffusion_img = img
+            # print('done _run_generation')
+
+
+    def _init_diffusion_thread(self, diffusion_engine):
+        self.diffusion_engine = diffusion_engine
+        generation_thread = threading.Thread(target=self._run_generation)
+        generation_thread.start()
+        print("generation_thread started")
+
+    def generate(
+        self, 
+        diffusion_engine,          
+        embeds, 
+        input_image=None, 
+        latents=None,
+        decoder_embeds=None,
+        num_inference_steps=None,
+        do_run=True,  
+    ):
+        # print("generate called")
+        if self.diffusion_engine is None:
+            self._init_diffusion_thread(diffusion_engine)
+        self.do_run = do_run
+        self.embeds = embeds
+        self.input_image = input_image
+        self.latents = latents
+        self.decoder_embeds = decoder_embeds
+        self.num_inference_steps = num_inference_steps
+        return [self.last_diffusion_img]
 
 # # Add custom API routes, using router
 # from aiohttp import web
