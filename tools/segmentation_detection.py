@@ -7,6 +7,8 @@ from torchvision import transforms
 import torchvision
 import time
 import lunar_tools as lt
+from ultralytics import YOLO
+from huggingface_hub import hf_hub_download
 
 class HumanSeg:
     """
@@ -22,7 +24,7 @@ class HumanSeg:
     """
     # 
     def __init__(self, model_name='deeplabv3_resnet101', resizing_factor=None, size=None):
-        self.model = torch.hub.load('pytorch/vision:v0.10.0', model_name, pretrained=True)
+        self.model = torch.hub.load('pytorch/visiofrom ultralytics import YOLOn:v0.10.0', model_name, pretrained=True)
         
         self.model.eval()
         self.model.to('cuda')
@@ -54,7 +56,7 @@ class HumanSeg:
         Args:
             cam_img (np.ndarray): The input image in which the human body is to be segmented. The image should be in RGB format.
 
-        Returns:
+        Returns:float32
             sets self.mask, a binary mask for the human body in the input image. The mask is of the same size as the input image.
         """
         if isinstance(input_img, np.ndarray) and input_img.dtype == np.float32:
@@ -134,24 +136,168 @@ class HumanSeg:
 
         return masked_img
 
+
+class FaceCropper:
+    def __init__(self, model_path=None, padding=30):
+        if model_path is None:
+            model_path = hf_hub_download(repo_id="arnabdhar/YOLOv8-Face-Detection", filename="model.pt")
+        self.yolo = YOLO(model_path)
+        self.padding = int(padding)
+
+    def set_padding(self, value):
+        # print(f"set_padding called with {value}")
+        if value < 0:
+            raise ValueError("Padding must be non-negative")
+        self.padding = int(value)
+
+    def get_cropping_coordinates(self, input_img):
+        # import pdb; pdb.set_trace()
+        if isinstance(input_img, torch.Tensor):
+            input_img = input_img.cpu().numpy()
+            input_img = np.clip(input_img * 255, 0, 255)
+            
+        if len(input_img.shape)==4:
+            input_img = input_img[0, :, :, :]
+
     
+        try:
+            # Run face detection
+            face_results = self.yolo(input_img, verbose=False)
+            # If no face present, no need to do anything
+            if len(face_results) == 0:
+                return None
+    
+            # Initialize variables to store the maximum area and corresponding index
+            max_area = 0
+            cropping_coordinates = None
+    
+            # Loop through all detected faces
+            for result in face_results:
+                # Retrieve the bounding box coordinates in the format (x1, y1, x2, y2)
+                x1, y1, x2, y2 = result.boxes.xyxy[0].cpu().numpy()
+                # Calculate the area of the bounding box
+                area = (x2 - x1) * (y2 - y1)
+    
+                # Check if this area is the largest we've seen so far
+                if area > max_area:
+                    max_area = area
+                    # Update the cropping coordinates to the largest face found
+                    cropping_coordinates = (x1, y1, x2, y2)
+    
+            if cropping_coordinates is None:
+                return None
+    
+            x1, y1, x2, y2 = cropping_coordinates
+    
+            # Adjust to square
+            width = x2 - x1
+            height = y2 - y1
+    
+            if width > height:
+                difference = (width - height) // 2
+                y1 = max(0, y1 - difference)
+                y2 = min(input_img.shape[0], y2 + difference)
+            elif height > width:
+                difference = (height - width) // 2
+                x1 = max(0, x1 - difference)
+                x2 = min(input_img.shape[1], x2 + difference)
+    
+            if (x2 - x1) != (y2 - y1):
+                new_size = min(x2 - x1, y2 - y1)
+                x2 = x1 + new_size
+                y2 = y1 + new_size
+    
+            # Calculate new padding to center the padding around the box
+            padding_x = (self.padding // 2, self.padding // 2)
+            padding_y = (self.padding // 2, self.padding // 2)
+    
+            # Adjust padding if it causes the box to go out of image bounds
+            if x1 - padding_x[0] < 0:
+                padding_x = (x1, self.padding - x1)
+            if x2 + padding_x[1] > input_img.shape[1]:
+                padding_x = (self.padding - (input_img.shape[1] - x2), input_img.shape[1] - x2)
+    
+            if y1 - padding_y[0] < 0:
+                padding_y = (y1, self.padding - y1)
+            if y2 + padding_y[1] > input_img.shape[0]:
+                padding_y = (self.padding - (input_img.shape[0] - y2), input_img.shape[0] - y2)
+    
+            # Apply adjusted padding
+            x1 = max(0, x1 - padding_x[0])
+            x2 = min(input_img.shape[1], x2 + padding_x[1])
+            y1 = max(0, y1 - padding_y[0])
+            y2 = min(input_img.shape[0], y2 + padding_y[1])
+    
+            cropping_coordinates = (int(x1), int(y1), int(x2), int(y2))
+    
+            return cropping_coordinates
+            
+        except Exception as e:
+            print(f"get_cropping_coordinates exception {e}")
+            return None
+        
+    def apply_crop(self, input_img, cropping_coordinates):
+        if cropping_coordinates:
+            return Image.fromarray(input_img).crop(cropping_coordinates)
+        else:
+            print("warning! cropping coordinates are empty")
+            return input_img
+
+
+
 
 
 if __name__ == '__main__':
     import lunar_tools as lt
     import matplotlib.pyplot as plt
+    from PIL import Image
+    import numpy as np
+
+    # # Load the image from the specified path
+    # image_path = "/home/lugo/git/ComfyUI/input/example.png"
+    # input_img = Image.open(image_path)
+    # input_img = np.array(input_img)
+    
+    # input_img = np.array(input_img, dtype=np.float32) / 255.0
+    # input_img = np.expand_dims(input_img, axis=0)
+    
     
     shape_cam=(300,400) 
-    cam = lt.WebCam(cam_id=-1, shape_hw=shape_cam)
+    cam = lt.WebCam(cam_id=2, shape_hw=shape_cam)
+
+    face_cropper = FaceCropper(padding=30)
     
-    human_seg = HumanSeg(resizing_factor=1.0)
     
-    #%%
-    while True:
-        cam_img = cam.get_img()
-        cam_img = np.flip(cam_img, axis=1)    
+    img_cam = cam.get_img()
+    cropping_coordinates = face_cropper.get_cropping_coordinates(img_cam)
+
+    if cropping_coordinates is not None:
+        cam_img_cropped = Image.fromarray(img_cam).crop(cropping_coordinates)
+
+        # Display the cropped image
+        plt.imshow(cam_img_cropped)
+        plt.ion()
+        plt.show()
+    else:
+        print("No face detected.")
+
+
+
+# if __name__ == '__main__HUMANSEG':
+#     import lunar_tools as lt
+#     import matplotlib.pyplot as plt
     
-        human_seg.get_mask(cam_img)
-        img = human_seg.apply_mask(cam_img)
+#     shape_cam=(300,400) 
+#     cam = lt.WebCam(cam_id=-1, shape_hw=shape_cam)
+    
+#     human_seg = HumanSeg(resizing_factor=1.0)
+    
+#     #%%
+#     while True:
+#         cam_img = cam.get_img()
+#         cam_img = np.flip(cam_img, axis=1)    
+    
+#         human_seg.get_mask(cam_img)
+#         img = human_seg.apply_mask(cam_img)
         
-        plt.imshow(img); plt.ion(); plt.show()        
+#         plt.imshow(img); plt.ion(); plt.show()        

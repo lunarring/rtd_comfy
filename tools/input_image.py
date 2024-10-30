@@ -8,6 +8,40 @@ from .segmentation_detection import HumanSeg
 from lunar_tools import exception_handler
 import lunar_tools as lt
 
+def img2tensor(tensor):
+    """
+    Converts a tensor to a numpy array.
+
+    Parameters:
+    tensor (torch.Tensor): The input tensor to be converted.
+
+    Returns:
+    np.ndarray: The converted numpy array.
+    """
+    return tensor.cpu().numpy() if tensor.is_cuda else tensor.numpy()
+
+def tensor2image(input_data):
+    """
+    Converts a tensor to a numpy array.
+
+    Parameters:
+    input_data (torch.Tensor): The input tensor to be converted. It should be in the format (C, H, W) where
+                                C is the number of channels, H is the height, and W is the width.
+
+    Returns:
+    np.ndarray: The converted numpy array or the input if it is not a tensor.
+    """
+    
+    # Check if the input is a tensor
+    if not isinstance(input_data, (torch.Tensor)):
+        return input_data
+    
+    # Ensure the tensor is on the CPU and convert to a numpy array
+    converted_data = input_data.cpu().numpy() if input_data.is_cuda else input_data.numpy()
+    if len(converted_data.shape) == 4:
+        converted_data = converted_data[0, :, :, :]
+    converted_data = np.clip(converted_data * 255, 0, 255)
+    return converted_data
 
 def zoom_image_torch(input_tensor, zoom_factor):
     try:

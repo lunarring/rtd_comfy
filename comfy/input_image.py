@@ -3,6 +3,7 @@ import torch
 import cv2
 import lunar_tools as lt
 from ..tools.input_image import InputImageProcessor, AcidProcessor
+from PIL import Image
 
 class LRInputImageProcessor:
     """
@@ -290,3 +291,31 @@ class LRFreezeImage:
                 self.frozen_image = None
             return [image]
 
+
+class LRCropImage:
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_img": ("IMAGE", {}),
+                "cropping_coordinates": ("ARRAY", {})
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("cropped image",)
+    FUNCTION = "crop"
+    OUTPUT_NODE = False
+    CATEGORY = "LunarRing/visual"
+
+    def crop(self, input_img, cropping_coordinates):
+        try:
+            pil_image = Image.fromarray(input_img)
+            cropped_img = pil_image.crop(cropping_coordinates)
+            return [np.array(cropped_img)]
+        except Exception as e:
+            print(f"Error during cropping: {e}")
+            return [input_img]
