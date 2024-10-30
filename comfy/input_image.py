@@ -319,3 +319,28 @@ class LRCropImage:
         except Exception as e:
             print(f"Error during cropping: {e}")
             return [input_img]
+
+
+class LRImageGate:
+    def __init__(self):
+        self.return_image = None
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_image": ("IMAGE", {}),
+                "use_image": ("BOOLEAN", {})
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("output_image",)
+    FUNCTION = "gate"
+    OUTPUT_NODE = False
+    CATEGORY = "LunarRing/visual"
+
+    def gate(self, input_image, use_image=None):
+        if use_image:
+            self.return_image = input_image
+        return [self.return_image]
