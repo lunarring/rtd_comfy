@@ -4,11 +4,12 @@ NODE_CLASS_MAPPINGS["LR DiffusionEngineAcid"] = LRDiffusionEngineAcid
 NODE_CLASS_MAPPINGS["LR DiffusionEngineLoader"] = LRDiffusionEngineLoader
 NODE_CLASS_MAPPINGS["LR DiffusionEngineThreaded"] = LRDiffusionEngineThreaded
 
-from .comfy.input_image import LRInputImageProcessor, LRFreezeImage, LRCropImage, LRImageGate
+from .comfy.input_image import LRInputImageProcessor, LRFreezeImage, LRCropImage, LRImageGate, LRImageGateSelect
 NODE_CLASS_MAPPINGS["LR InputImageProcessor"] = LRInputImageProcessor
 NODE_CLASS_MAPPINGS["LR FreezeImage"] = LRFreezeImage
 NODE_CLASS_MAPPINGS["LR CropImage"] = LRCropImage
 NODE_CLASS_MAPPINGS["LR ImageGate"] = LRImageGate
+NODE_CLASS_MAPPINGS["LR ImageGateSelect"] = LRImageGateSelect
 
 from .comfy.embeddings_mixer import LREncodePrompt, LRBlend2Embeds, LRBlend4Embeds
 NODE_CLASS_MAPPINGS["LR EncodePrompt"] = LREncodePrompt

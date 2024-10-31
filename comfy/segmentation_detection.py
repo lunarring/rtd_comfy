@@ -40,8 +40,8 @@ class LRHumanSeg:
 
 
 class LRFaceCropper:
-    RETURN_TYPES = ("IMAGE", "ARRAY")
-    RETURN_NAMES = ("cropped image", "cropping coordinates")
+    RETURN_TYPES = ("IMAGE", "ARRAY", "BOOLEAN")
+    RETURN_NAMES = ("cropped image", "cropping coordinates", "is_face_present")
     FUNCTION = "crop"
     OUTPUT_NODE = False
     CATEGORY = "LunarRing/vision"
@@ -74,6 +74,11 @@ class LRFaceCropper:
         
         cropping_coordinates = self.face_cropper.get_cropping_coordinates(input_img)
         cropped_img = self.face_cropper.apply_crop(input_img, cropping_coordinates)
-        cropping_coordinates = np.asarray(cropping_coordinates)
+        if cropping_coordinates:
+            cropping_coordinates = np.asarray(cropping_coordinates)
+            is_face_present = True
+        else:
+            is_face_present = False
+
         
-        return (cropped_img, cropping_coordinates)
+        return (cropped_img, cropping_coordinates, is_face_present)

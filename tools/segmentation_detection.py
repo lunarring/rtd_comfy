@@ -233,14 +233,14 @@ class FaceCropper:
             return cropping_coordinates
             
         except Exception as e:
-            print(f"get_cropping_coordinates exception {e}")
+            # print(f"get_cropping_coordinates exception {e}")
             return None
         
     def apply_crop(self, input_img, cropping_coordinates):
         if cropping_coordinates:
             return Image.fromarray(input_img).crop(cropping_coordinates)
         else:
-            print("warning! cropping coordinates are empty")
+            # print("warning! cropping coordinates are empty")
             return input_img
 
 
