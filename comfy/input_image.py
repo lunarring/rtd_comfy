@@ -330,7 +330,7 @@ class LRImageGate:
         return {
             "required": {
                 "input_image": ("IMAGE", {}),
-                "use_image": ("BOOLEAN", {})
+                "inject_image": ("BOOLEAN", {"default": False, "defaultInput": True})
             }
         }
 
@@ -340,7 +340,35 @@ class LRImageGate:
     OUTPUT_NODE = False
     CATEGORY = "LunarRing/visual"
 
-    def gate(self, input_image, use_image=None):
-        if use_image:
+    def gate(self, input_image, inject_image=None):
+        if inject_image:
             self.return_image = input_image
+        return [self.return_image]
+
+
+class LRImageGateSelect:
+    def __init__(self):
+        self.return_image = None
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "input_image_1": ("IMAGE", {}),
+                "input_image_2": ("IMAGE", {}),
+                "inject_first": ("BOOLEAN", {"default": False, "defaultInput": True})
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("output_image",)
+    FUNCTION = "gate"
+    OUTPUT_NODE = False
+    CATEGORY = "LunarRing/visual"
+
+    def gate(self, input_image_1, input_image_2, inject_first=None):
+        if inject_first:
+            self.return_image = input_image_1
+        else:
+            self.return_image = input_image_2
         return [self.return_image]
