@@ -11,8 +11,8 @@ NODE_CLASS_MAPPINGS["LR CropImage"] = LRCropImage
 NODE_CLASS_MAPPINGS["LR ImageGate"] = LRImageGate
 NODE_CLASS_MAPPINGS["LR ImageGateSelect"] = LRImageGateSelect
 
-from .comfy.embeddings_mixer import LREncodePrompt, LRBlend2Embeds, LRBlend4Embeds
-NODE_CLASS_MAPPINGS["LR EncodePrompt"] = LREncodePrompt
+from .comfy.embeddings_mixer import LRPrompt2Embedding, LRBlend2Embeds, LRBlend4Embeds
+NODE_CLASS_MAPPINGS["LR Prompt2Embedding"] = LRPrompt2Embedding
 NODE_CLASS_MAPPINGS["LR LRBlend2Embeds"] = LRBlend2Embeds
 NODE_CLASS_MAPPINGS["LR LRBlend4Embeds"] = LRBlend4Embeds
 

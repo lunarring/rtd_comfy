@@ -1,15 +1,23 @@
 from ..sdxl_turbo.embeddings_mixer import EmbeddingsMixer
 import numpy as np
 
-class LREncodePrompt:
+class LRPrompt2Embedding:
     RETURN_TYPES = ("CONDITIONING",)  
     RETURN_NAMES = ("embeds",)  
     FUNCTION = "encode_prompt"
     OUTPUT_NODE = False
     CATEGORY = "LunarRing/embeds"
-
+    
+    # @classmethod 
+    # def IS_CHANGED(self, diffusion_engine, prompt):
+    #     if prompt != self.last_prompt:
+    #         return 1.0
+    #     else:
+    #         return 0.0
+    
     def __init__(self):
         self.em = None
+        self.last_prompt = None
 
     def initialize_once(self, diffusion_engine):
         if self.em is None:
@@ -26,8 +34,11 @@ class LREncodePrompt:
 
     def encode_prompt(self, diffusion_engine, prompt):
         self.initialize_once(diffusion_engine)
-        embeds = [self.em.encode_prompt(prompt)]
-        return (embeds)
+        if self.last_prompt != prompt:
+            print(f'encode prompt is called with: {prompt}')
+            self.last_embeds = [self.em.encode_prompt(prompt)]
+            self.last_prompt = prompt
+        return (self.last_embeds)
 
 
 class LRBlend2Embeds:
