@@ -18,7 +18,7 @@ def img2tensor(tensor):
     Returns:
     np.ndarray: The converted numpy array.
     """
-    return tensor.cpu().numpy() if tensor.is_cuda else tensor.numpy()
+    return (tensor.cpu().numpy() if tensor.is_cuda else tensor.numpy()) / 255.0
 
 def tensor2image(input_data):
     """
