@@ -24,7 +24,7 @@ class HumanSeg:
     """
     # 
     def __init__(self, model_name='deeplabv3_resnet101', resizing_factor=None, size=None):
-        self.model = torch.hub.load('pytorch/visiofrom ultralytics import YOLOn:v0.10.0', model_name, pretrained=True)
+        self.model = torch.hub.load('pytorch/vision:v0.10.0', model_name, pretrained=True)
         
         self.model.eval()
         self.model.to('cuda')
