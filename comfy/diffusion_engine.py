@@ -291,7 +291,7 @@ class LRDiffusionEngineThreaded:
     def _run_generation(self):
         while True:
             if not self.do_run:
-                time.sleep(0.05)
+                time.sleep(0.02)
                 continue
             # print("starting _run_generation")
             if self.input_image is not None:
@@ -312,6 +312,7 @@ class LRDiffusionEngineThreaded:
                 self.diffusion_engine.set_num_inference_steps(int(self.num_inference_steps))
             img = np.asarray(self.diffusion_engine.generate())
             self.last_diffusion_img = img
+            self.do_run = False
             # print('done _run_generation')
 
 
@@ -339,7 +340,9 @@ class LRDiffusionEngineThreaded:
         self.input_image = input_image
         self.latents = latents
         self.decoder_embeds = decoder_embeds
-        self.num_inference_steps = num_inference_steps
+        if num_inference_steps != self.num_inference_steps:
+            self.num_inference_steps = num_inference_steps
+            self.do_run = True
         return [self.last_diffusion_img]
 
 # # Add custom API routes, using router
