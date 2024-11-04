@@ -292,6 +292,30 @@ class LRFreezeImage:
             return [image]
 
 
+class LRCropCoordinates():
+    RETURN_TYPES = ("ARRAY",)
+    RETURN_NAMES = ("cropping_coordinates", )
+    FUNCTION = "execute"
+    OUTPUT_NODE = True
+    CATEGORY = "LunarRing/prompt"
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "left": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "upper": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "right": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+                "lower": ("FLOAT", {"default": 1.0, "min": 0.0, "max": 1.0, "step": 0.01}),
+            }
+        }
+
+    def execute(self, left, upper, right, lower):
+        cropping_coordinates = [left, upper, right, lower]
+        return (cropping_coordinates, )
+
+
+
 class LRCropImage:
     def __init__(self):
         pass
@@ -313,6 +337,8 @@ class LRCropImage:
 
     def crop(self, input_img, cropping_coordinates):
         try:
+            if max(cropping_coordinates) <= 1:
+                cropping_coordinates = [int(coord * input_img.shape[1]) if i % 2 == 0 else int(coord * input_img.shape[0]) for i, coord in enumerate(cropping_coordinates)]
             pil_image = Image.fromarray(input_img)
             cropped_img = pil_image.crop(cropping_coordinates)
             return [np.array(cropped_img)]
