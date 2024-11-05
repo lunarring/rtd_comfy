@@ -143,6 +143,7 @@ class FaceCropper:
             model_path = hf_hub_download(repo_id="arnabdhar/YOLOv8-Face-Detection", filename="model.pt")
         self.yolo = YOLO(model_path)
         self.padding = int(padding)
+        self.nmb_faces_present = 0
 
     def set_padding(self, value):
         # print(f"set_padding called with {value}")
@@ -163,6 +164,7 @@ class FaceCropper:
         try:
             # Run face detection
             face_results = self.yolo(input_img, verbose=False)
+            self.nmb_faces_present = len(face_results)
             # If no face present, no need to do anything
             if len(face_results) == 0:
                 return None

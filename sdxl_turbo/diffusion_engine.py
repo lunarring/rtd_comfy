@@ -1,5 +1,5 @@
 import numpy as np
-from .embeddings_mixer import EmbeddingsMixer
+from embeddings_mixer import EmbeddingsMixer
 from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image
 from diffusers.models import UNet2DConditionModel
 from diffusers import StableDiffusionXLImg2ImgPipeline
@@ -14,6 +14,8 @@ import torch.utils.checkpoint
 from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Tuple, Union
 from diffusers.pipelines.stable_diffusion_xl.pipeline_stable_diffusion_xl_img2img import retrieve_latents
+import threading
+import time
 
 from diffusers.configuration_utils import ConfigMixin, register_to_config
 from diffusers.utils import USE_PEFT_BACKEND, BaseOutput, deprecate, logging, scale_lora_layers, unscale_lora_layers
@@ -706,9 +708,9 @@ class DiffusionEngine():
         The number of inference steps is set to 2 and the pipeline is initialized with the loaded model.
         """
         try:
-            pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+            pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True, add_watermarker=False)
         except Exception as e:
-            pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False)
+            pipe = AutoPipelineForImage2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False, add_watermarker=False)
         self.num_inference_steps = 2
         self._init_pipe(pipe)
         self.init_input_image_noise()
@@ -720,9 +722,9 @@ class DiffusionEngine():
         The number of inference steps is set to 1 and the pipeline is initialized with the loaded model.
         """
         try:
-            pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True)
+            pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=True, add_watermarker=False)
         except Exception as e:
-            pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False)
+            pipe = AutoPipelineForText2Image.from_pretrained(self.hf_model, torch_dtype=torch.float16, variant="fp16", local_files_only=False, add_watermarker=False)
         self.num_inference_steps = 1
         self._init_pipe(pipe)
 
@@ -776,16 +778,16 @@ class DiffusionEngine():
             
         return torch.randn((1, 4, self.height_latents, self.width_latents)).half().cuda()
 
-    def set_num_inference_steps(self, num_inference_steps):
+    def set_num_inference_steps(self, num_inference_steps, force_minimum_strength=True):
         """Sets the number of inference steps."""
         self.num_inference_steps = int(num_inference_steps)
         
-        # choose/set strength automatically
-        if num_inference_steps > 1:
-            strength = 1/num_inference_steps + 0.0001
-        else:
-            strength = 1
-        self.strength = float(strength)
+        if force_minimum_strength:
+            if num_inference_steps > 1:
+                strength = 1/num_inference_steps + 0.0001
+            else:
+                strength = 1
+            self.strength = float(strength)
 
     def set_guidance_scale(self, guidance_scale):
         """Sets the guidance scale."""
@@ -1051,6 +1053,100 @@ class StereoDiffusionEngine(DiffusionEngine):
     
         return img_diffusion
 
+class DiffusionEngineThreaded:
+    DEFAULT_NUM_INFERENCE_STEPS = 2
+
+    def __init__(self, diffusion_engine):
+        self.diffusion_engine = diffusion_engine
+        self.do_run = False
+        self.num_inference_steps = self.DEFAULT_NUM_INFERENCE_STEPS
+        self.embeds = None
+        self.input_image = None
+        self.latents = None
+        self.strength = None
+        self.decoder_embeds = None
+        self.last_diffusion_img = None  # Initialize as None
+        self.start_generation_thread()  # Start the thread in the init
+
+    def start_generation_thread(self):
+        generation_thread = threading.Thread(target=self._run_generation)
+        generation_thread.start()
+
+    def set_embeddings(self, embeds):
+        self.embeds = embeds
+
+    def set_input_image(self, input_image):
+        self.input_image = input_image
+
+    def set_latents(self, latents):
+        self.latents = latents
+
+    def set_decoder_embeddings(self, decoder_embeds):
+        self.decoder_embeds = decoder_embeds
+
+    def set_num_inference_steps(self, num_inference_steps):
+        self.num_inference_steps = num_inference_steps
+
+    def _run_generation(self):
+        while True:
+            if not self.do_run:
+                time.sleep(0.02)
+                continue
+            if self.input_image is not None:
+                input_image = self.input_image
+            else:
+                input_image = np.array(self.diffusion_engine.image_init)
+
+            self.diffusion_engine.set_embeddings(self.embeds)
+            if input_image is not None:
+                self.diffusion_engine.set_input_image(input_image)
+            if self.latents is not None:
+                self.diffusion_engine.set_latents(self.latents)
+            if self.decoder_embeds is not None:
+                self.diffusion_engine.set_decoder_embeddings(self.decoder_embeds)
+            if self.num_inference_steps is not None:
+                self.diffusion_engine.set_num_inference_steps(int(self.num_inference_steps))
+            if self.strength is not None:
+                self.diffusion_engine.set_strength(self.strength)
+
+            img = np.asarray(self.diffusion_engine.generate())
+            self.last_diffusion_img = img
+            # upd liveport...
+
+            self.do_run = False
+
+    def generate(self, embeds, input_image=None, latents=None, decoder_embeds=None, num_inference_steps=None, strength=None, do_run=True):
+        self.do_run = do_run
+        self.latents = latents
+        self.decoder_embeds = decoder_embeds
+        if num_inference_steps != self.num_inference_steps:
+            self.num_inference_steps = num_inference_steps
+            self.do_run = True
+        if strength != self.strength:
+            self.strength = np.clip(strength, 1/self.num_inference_steps, 1.0)
+            self.do_run = True
+        if self.embeds is None or not torch.equal(self.embeds[0], embeds[0]):
+            self.embeds = embeds
+            self.do_run = True
+        if input_image is not None:
+            input_image = np.array(input_image)  # Convert PIL image to numpy array
+            if not np.array_equal(self.input_image, input_image):  # Check if different from self.input_image
+                self.input_image = input_image
+                self.do_run = True
+        
+        return self.last_diffusion_img
+
+
+if __name__ == '__main__':
+    height_diffusion = 512
+    width_diffusion = 512
+    de = DiffusionEngine(use_image2image=True, height_diffusion_desired=height_diffusion, width_diffusion_desired=width_diffusion)
+    em = EmbeddingsMixer(de.pipe)
+    embeds = em.encode_prompt("photo of a man")
+    de_threaded = DiffusionEngineThreaded(de)
+    
+    xxx
+
 
 
 if __name__ == '__main__KWARGS':
@@ -1072,7 +1168,7 @@ if __name__ == '__main__KWARGS':
         renderer.render(img)
 
 
-if __name__ == '__main__':
+if __name__ == '__main__decoder':
     # Example for modifying decoder embeddings
     height_diffusion = 512
     width_diffusion = 512
@@ -1126,10 +1222,10 @@ if __name__ == '__main__':
     
 # if __name__ == '__main__X':
 #     # Example for multiple engines that exist at same time
-#     de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=700, width_diffusion_desired=1024)
+#     de_txt = DiffusionEngine(use_image2image=False, height_diffusion_desired=700, width_diffusiion_desired=1024)
 #     em = EmbeddingsMixer(de_txt.pipe)
 #     embeds = em.encode_prompt("photo of a house")
-#     de_txt.set_embeddings(embeds)
+#     de_txt.set_embeddings(embeds)threading
 #     img_init = de_txt.generate()
     
 #     de_img = DiffusionEngine(use_image2image=True, height_diffusion_desired=512, width_diffusion_desired=512)
