@@ -161,10 +161,14 @@ class FaceCropper:
             input_img = input_img[0, :, :, :]
 
     
+        # Run face detection
         try:
-            # Run face detection
             face_results = self.yolo(input_img, verbose=False)
-            self.nmb_faces_present = len(face_results)
+            self.nmb_faces_present = len(face_results[0].boxes.xyxy)
+        except Exception as e:
+            return None
+
+        try:
             # If no face present, no need to do anything
             if len(face_results) == 0:
                 return None
