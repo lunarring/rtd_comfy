@@ -1,5 +1,5 @@
 import numpy as np
-from embeddings_mixer import EmbeddingsMixer
+from .embeddings_mixer import EmbeddingsMixer
 from diffusers import AutoPipelineForText2Image, AutoPipelineForImage2Image
 from diffusers.models import UNet2DConditionModel
 from diffusers import StableDiffusionXLImg2ImgPipeline
